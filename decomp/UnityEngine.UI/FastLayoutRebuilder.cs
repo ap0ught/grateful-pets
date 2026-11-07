@@ -1,0 +1,290 @@
+using System.Collections.Generic;
+using UnityEngine.Events;
+using UnityEngine.Pool;
+
+namespace UnityEngine.UI;
+
+public class FastLayoutRebuilder : ICanvasElement
+{
+	private static Dictionary<GameObject, LayoutGroup[]> objectLayoutGroups;
+
+	private static LayoutGroup[] emptySet;
+
+	private RectTransform m_ToRebuild;
+
+	private int m_CachedHashFromTransform;
+
+	private static ObjectPool<FastLayoutRebuilder> s_Rebuilders;
+
+	private Dictionary<RectTransform, List<Component>> components = new Dictionary<RectTransform, List<Component>>();
+
+	public Transform transform => m_ToRebuild;
+
+	public static LayoutGroup[] fetchLayoutGroup(GameObject go)
+	{
+		if (go == null)
+		{
+			return emptySet;
+		}
+		if (objectLayoutGroups.TryGetValue(go, out var value))
+		{
+			return value;
+		}
+		value = go.GetComponents<LayoutGroup>();
+		if (value == null || value.Length == 0)
+		{
+			objectLayoutGroups.Add(go, emptySet);
+		}
+		else
+		{
+			objectLayoutGroups.Add(go, value);
+		}
+		return value;
+	}
+
+	public static void RefreshLayoutGroupsImmediateAndRecursiveCached(GameObject root)
+	{
+		LayoutGroup[] array = fetchLayoutGroup(root);
+		for (int i = 0; i < array.Length; i++)
+		{
+			LayoutRebuilder.ForceRebuildLayoutImmediate(array[i].transform as RectTransform);
+		}
+	}
+
+	private void Initialize(RectTransform controller)
+	{
+		m_ToRebuild = controller;
+		m_CachedHashFromTransform = controller.GetHashCode();
+	}
+
+	private void Clear()
+	{
+		m_ToRebuild = null;
+		m_CachedHashFromTransform = 0;
+	}
+
+	static FastLayoutRebuilder()
+	{
+		objectLayoutGroups = new Dictionary<GameObject, LayoutGroup[]>();
+		emptySet = new LayoutGroup[0];
+		s_Rebuilders = new ObjectPool<FastLayoutRebuilder>(() => new FastLayoutRebuilder(), null, (FastLayoutRebuilder x) =>
+		{
+			x.Clear();
+		});
+		RectTransform.reapplyDrivenProperties += ReapplyDrivenProperties;
+	}
+
+	private static void ReapplyDrivenProperties(RectTransform driven)
+	{
+		MarkLayoutForRebuild(driven);
+	}
+
+	public bool IsDestroyed()
+	{
+		return m_ToRebuild == null;
+	}
+
+	private static void StripDisabledBehavioursFromList(List<Component> components)
+	{
+		components.RemoveAll((Component e) => e is Behaviour && !((Behaviour)e).isActiveAndEnabled);
+	}
+
+	public static void ForceRebuildLayoutImmediate(RectTransform layoutRoot)
+	{
+		FastLayoutRebuilder fastLayoutRebuilder = s_Rebuilders.Get();
+		fastLayoutRebuilder.Initialize(layoutRoot);
+		fastLayoutRebuilder.Rebuild(CanvasUpdate.Layout);
+		s_Rebuilders.Release(fastLayoutRebuilder);
+	}
+
+	public void Rebuild(CanvasUpdate executing)
+	{
+		if (executing == CanvasUpdate.Layout)
+		{
+			PerformLayoutCalculation(m_ToRebuild, (Component e) =>
+			{
+				(e as ILayoutElement).CalculateLayoutInputHorizontal();
+			});
+			PerformLayoutControl(m_ToRebuild, (Component e) =>
+			{
+				(e as ILayoutController).SetLayoutHorizontal();
+			});
+			PerformLayoutCalculation(m_ToRebuild, (Component e) =>
+			{
+				(e as ILayoutElement).CalculateLayoutInputVertical();
+			});
+			PerformLayoutControl(m_ToRebuild, (Component e) =>
+			{
+				(e as ILayoutController).SetLayoutVertical();
+			});
+		}
+	}
+
+	private void PerformLayoutControl(RectTransform rect, UnityAction<Component> action)
+	{
+		if (rect == null)
+		{
+			return;
+		}
+		List<Component> list = CollectionPool<List<Component>, Component>.Get();
+		rect.GetComponents(typeof(ILayoutController), list);
+		StripDisabledBehavioursFromList(list);
+		if (list.Count > 0)
+		{
+			for (int i = 0; i < list.Count; i++)
+			{
+				if (list[i] is ILayoutSelfController)
+				{
+					action(list[i]);
+				}
+			}
+			for (int j = 0; j < list.Count; j++)
+			{
+				if (list[j] is ILayoutSelfController)
+				{
+					continue;
+				}
+				Component component = list[j];
+				if ((bool)component && component is ScrollRect)
+				{
+					if (((ScrollRect)component).content != rect)
+					{
+						action(list[j]);
+					}
+				}
+				else
+				{
+					action(list[j]);
+				}
+			}
+			for (int k = 0; k < rect.childCount; k++)
+			{
+				PerformLayoutControl(rect.GetChild(k) as RectTransform, action);
+			}
+		}
+		CollectionPool<List<Component>, Component>.Release(list);
+	}
+
+	public List<Component> fetchComponents(RectTransform rect)
+	{
+		if (components.TryGetValue(rect, out var value))
+		{
+			return value;
+		}
+		value = CollectionPool<List<Component>, Component>.Get();
+		rect.GetComponents(typeof(ILayoutElement), value);
+		StripDisabledBehavioursFromList(value);
+		components.Add(rect, value);
+		return value;
+	}
+
+	private void PerformLayoutCalculation(RectTransform rect, UnityAction<Component> action)
+	{
+		if (rect == null)
+		{
+			return;
+		}
+		List<Component> list = fetchComponents(rect);
+		if (list.Count > 0 || rect.TryGetComponent(typeof(ILayoutGroup), out var _))
+		{
+			for (int i = 0; i < rect.childCount; i++)
+			{
+				PerformLayoutCalculation(rect.GetChild(i) as RectTransform, action);
+			}
+			for (int j = 0; j < list.Count; j++)
+			{
+				action(list[j]);
+			}
+		}
+	}
+
+	public static void MarkLayoutForRebuild(RectTransform rect)
+	{
+		if (rect == null || rect.gameObject == null)
+		{
+			return;
+		}
+		List<Component> list = CollectionPool<List<Component>, Component>.Get();
+		bool flag = true;
+		RectTransform rectTransform = rect;
+		RectTransform rectTransform2 = rectTransform.parent as RectTransform;
+		while (flag && !(rectTransform2 == null) && !(rectTransform2.gameObject == null))
+		{
+			flag = false;
+			rectTransform2.GetComponents(typeof(ILayoutGroup), list);
+			for (int i = 0; i < list.Count; i++)
+			{
+				Component component = list[i];
+				if (component != null && component is Behaviour && ((Behaviour)component).isActiveAndEnabled)
+				{
+					flag = true;
+					rectTransform = rectTransform2;
+					break;
+				}
+			}
+			rectTransform2 = rectTransform2.parent as RectTransform;
+		}
+		if (rectTransform == rect && !ValidController(rectTransform, list))
+		{
+			CollectionPool<List<Component>, Component>.Release(list);
+			return;
+		}
+		MarkLayoutRootForRebuild(rectTransform);
+		CollectionPool<List<Component>, Component>.Release(list);
+	}
+
+	private static bool ValidController(RectTransform layoutRoot, List<Component> comps)
+	{
+		if (layoutRoot == null || layoutRoot.gameObject == null)
+		{
+			return false;
+		}
+		layoutRoot.GetComponents(typeof(ILayoutController), comps);
+		for (int i = 0; i < comps.Count; i++)
+		{
+			Component component = comps[i];
+			if (component != null && component is Behaviour && ((Behaviour)component).isActiveAndEnabled)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static void MarkLayoutRootForRebuild(RectTransform controller)
+	{
+		if (!(controller == null))
+		{
+			FastLayoutRebuilder fastLayoutRebuilder = s_Rebuilders.Get();
+			fastLayoutRebuilder.Initialize(controller);
+			if (!CanvasUpdateRegistry.TryRegisterCanvasElementForLayoutRebuild(fastLayoutRebuilder))
+			{
+				s_Rebuilders.Release(fastLayoutRebuilder);
+			}
+		}
+	}
+
+	public void LayoutComplete()
+	{
+		s_Rebuilders.Release(this);
+	}
+
+	public void GraphicUpdateComplete()
+	{
+	}
+
+	public override int GetHashCode()
+	{
+		return m_CachedHashFromTransform;
+	}
+
+	public override bool Equals(object obj)
+	{
+		return obj.GetHashCode() == GetHashCode();
+	}
+
+	public override string ToString()
+	{
+		return "(Layout Rebuilder for) " + m_ToRebuild;
+	}
+}

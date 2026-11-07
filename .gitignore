@@ -1,0 +1,15 @@
+# .NET / Roslyn build artifacts
+bin/
+obj/
+*.dll
+*.pdb
+*.user
+*.cache
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Local-only game config that should never leave this machine
+*.sav
+*.sav.gz
