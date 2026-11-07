@@ -33,6 +33,7 @@ journal entry says "see `XRL.World/GameObject.cs:6092`", that path is inside `de
 | 07 | [grateful-pets design](07-grateful-pets-design.md) | the mod: feed verb, gift table with weights, verified blueprint values |
 | 08 | [API cheatsheet](08-api-cheatsheet.md) | signatures I confirmed, so I don't have to re-decompile them |
 | 09 | [Gotchas & troubleshooting](09-gotchas-and-troubleshooting.md) | the async API break, silent `ReceiveObject`, Steam overwriting fixes |
+| 10 | [Pellet bug & feed redesign](10-pellet-bug-and-feed-redesign.md) | why "hands you 5 pellets" isn't the same as *having* them; the per-pet taste/food-picker redesign |
 
 ---
 
@@ -52,6 +53,11 @@ journal entry says "see `XRL.World/GameObject.cs:6092`", that path is inside `de
    See [entry 05](05-pets-and-companions.md).
 5. **Designed grateful-pets** — feed costs 1 food item, always yields 5 desalination pellets plus
    1 weighted random gift. See [entry 07](07-grateful-pets-design.md).
+6. **Chased the missing-pellets bug** — the message fires and `ReceiveObject` reports success,
+   `AddObject`'s three silent-failure guards are excluded by `Player.log`, and both gift and
+   pellet paths converge on an identical `TakeObject(GameObject, …)`; the only difference is
+   `Stacker.StackCount = 5` set before the take. Switched from reading to instrumenting, and
+   specified the feed redesign on top of it. See [entry 10](10-pellet-bug-and-feed-redesign.md).
 
 ## Status
 
@@ -60,6 +66,11 @@ journal entry says "see `XRL.World/GameObject.cs:6092`", that path is inside `de
 - [x] grateful-pets mod written → [`../mod/`](../mod/)
 - [x] **Install + verify both mods compile in-game** — *done 2026-11-07, first try, no iteration needed*
 - [x] Legacy Items forked to a repo under `ap0ught` for maintenance
+- [x] **Both repos published** — `ap0ught/grateful-pets` and `ap0ught/legacy-items` (public)
+- [ ] **Pellets don't actually arrive** — diagnosed as far as static reading allows, see
+      [entry 10](10-pellet-bug-and-feed-redesign.md); fix = rebuild with instrumentation
+- [ ] **Feed redesign** — food picker, per-pet taste tally, tiring, inventory-side feeding;
+      spec and decisions recorded in [entry 10](10-pellet-bug-and-feed-redesign.md)
 
 ## Verification result
 
