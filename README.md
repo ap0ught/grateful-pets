@@ -1,5 +1,7 @@
 # grateful-pets
 
+**Repository:** [`github.com/ap0ught/grateful-pets`](https://github.com/ap0ught/grateful-pets)
+
 A **Caves of Qud** mod where your pets appreciate being fed — plus the research journal that
 documents how the whole thing was built.
 
