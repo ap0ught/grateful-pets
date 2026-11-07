@@ -3,27 +3,37 @@
 //
 //  Feed a pet, get paid for it.
 //
-//      * The verb "Feed" appears in the twiddle menu of any real pet
-//        (Pet / StartingPet tag, or the Pettable part).
-//      * It costs one food item from your inventory and one turn.
-//      * It always yields 5 Desalination Pellets, plus one random gift
-//        rolled from the weighted table below.
+//      * "Feed" on a real pet (Pet / StartingPet tag, or Pettable) opens a
+//        picker of the food you carry.  Each entry is sorted by how many times
+//        you've fed that pet that food type, shown in brackets: beetle jerky [3].
+//      * "Feed to pet" on a food item in inventory feeds it to an adjacent pet
+//        (or asks which pet, if more than one is nearby).
+//      * It costs one food item and one turn.
+//      * Pellets: the pet produces 1 desalination pellet right away, then the
+//        other 4 over the course of the day while digesting, handing each to
+//        you when it's produced.  Pellets are never downgraded.
+//      * Treasure: one random gift is given immediately as thanks.  If the pet
+//        is tired of that food (fed it 5+ times, effective — the count decays
+//        by 1 per in-game day) the gift is rolled from a downgraded (junk)
+//        tier instead of the full table.
+//      * The pet exclaims how much it loves or loathes what you gave it.
 //
-//  How it is wired up (see journal/04-events-and-inventory-actions.md):
+//  History / forensics: journal/07-grateful-pets-design.md and
+//  journal/10-pellet-bug-and-feed-redesign.md.  The "pellets didn't arrive"
+//  report turned out to be artifact identification (Desalination Pellet has an
+//  Examiner/UnknownOddTrinket part; you can't recognise it until you've used
+//  one), not an inventory bug.
+//
+//  Wiring (see journal/04-events-and-inventory-actions.md):
 //
 //      OwnerGetInventoryActionsEvent  fires on the *player* for every twiddle,
-//                                    carrying E.Object = the pet.
-//                                    -> we add the Feed action there.
+//                                     E.Object = the thing being twiddled.
+//                                     -> "Feed" on a pet, "Feed to pet" on food.
+//      InventoryActionEvent           with FireOnActor:true lands on the player,
+//                                     E.Item = the thing the action was on.
 //
-//      InventoryActionEvent           is dispatched wherever InventoryAction
-//                                    .Process() points it. With
-//                                    FireOnActor: true that is the *player*,
-//                                    with E.Item = the pet.
-//                                    -> we handle it there.
-//
-//  Because both handlers live on a part attached to the player, this mod needs
-//  no XML blueprint edits at all: it covers every current pet and any pet a
-//  future mod or DLC adds, as long as it carries a pet tag.
+//  Both handlers live on a part attached to the player, so no XML blueprint
+//  edits are needed and every current/future pet is covered.
 // ---------------------------------------------------------------------------
 
 using System;
@@ -31,7 +41,9 @@ using System.Collections.Generic;
 using XRL;
 using XRL.Core;
 using XRL.Rules;
+using XRL.UI;
 using XRL.World;
+using XRL.World.AI.GoalHandlers;
 using XRL.World.Capabilities;
 
 namespace GratefulPetsMod
@@ -65,24 +77,40 @@ namespace GratefulPetsMod
 namespace XRL.World.Parts
 {
 	/// <summary>
-	/// Lives on the player. Adds a "Feed" action to pet menus and resolves it.
-	/// Stateless, so it is a plain [Serializable] IPart.
+	/// Lives on the player. Adds feed actions to pet/food menus and resolves them.
+	/// Stateless (the per-pet taste log is stored on the pet's string Property,
+	/// which is serialized by the save system) — so a plain [Serializable] IPart.
 	/// </summary>
 	[Serializable]
 	public class GratefulPets : IPart
 	{
-		public const string FEED_COMMAND = "FeedPet";
+		public const string FEED_COMMAND = "GratefulPets_FeedPet";
+		public const string FEED_FOOD_COMMAND = "GratefulPets_FeedToPet";
+		public const string APPLY_PELLET_COMMAND = "GratefulPets_ApplyPelletToContainer";
 
 		public const string PELLET_BLUEPRINT = "Desalination Pellet";
 		public const int PELLET_COUNT = 5;
+		public const int PELLETS_NOW = 1;
+		public const int PELLETS_DIGESTING = PELLET_COUNT - PELLETS_NOW; // 4, delivered over a day
+		public const int DIGESTION_INTERVAL = (int)Calendar.TurnsPerDay / PELLETS_DIGESTING; // 300 turns
 
 		public const int FEED_ENERGY_COST = 1000;   // one full turn
 		public const int FEED_RANGE = 1;            // must be adjacent
 
+		public const int TIRED_THRESHOLD = 5;       // effective count >= 5 => tired
+		public const long TURNS_PER_DAY = Calendar.TurnsPerDay; // 1200
+
+		public const string FEEDLOG_PROPERTY = "GratefulPets.FeedLog";
+		public const string DIGESTION_PROPERTY = "GratefulPets.Digestions";
+
 		// ------------------------------------------------------------------
-		//  Gift table.  Weights total 99.
-		//  Every blueprint is confirmed present in Base/ObjectBlueprints/Items.xml;
-		//  the numbers are their <part Name="Commerce" Value="..."/>.
+		//  Gift tables.  A "roll" picks a blueprint by weight.  When the pet is
+		//  tired of the chosen food the gift is downgraded to the junk tier
+		//  (nuggets and rough/unpolished stones) — still a gift, never a
+		//  jackpot.  Pellets are unaffected.
+		//
+		//  Full table weights total 99.  Blueprints are confirmed present in
+		//  Base/ObjectBlueprints/Items.xml (commerce values from that file):
 		//
 		//   12  Copper Nugget            10      5   Rough Topaz
 		//   10  Rough Agate             100      6   Polished Topaz
@@ -94,8 +122,6 @@ namespace XRL.World.Parts
 		//    2  Rough Emerald           350      2   Polished Emerald
 		//    2  Rough Peridot           350      2   Polished Peridot
 		//    1  UbernostrumTonic       (T5)      1   Chiral Rings           1250
-		//
-		//  ~31% common, ~27% mid, ~31% rare, ~10% jackpot.
 		// ------------------------------------------------------------------
 
 		static readonly string[] GiftBlueprints = new string[]
@@ -128,17 +154,25 @@ namespace XRL.World.Parts
 			12, 10, 9, 8, 7, 6, 6, 5, 5, 4, 4, 4, 3, 3, 3, 2, 2, 2, 2, 1, 1
 		};
 
-		static readonly int GiftWeightTotal = Sum(GiftWeights);
-
-		static int Sum(int[] Values)
+		// Junk tier — tired pet: nuggets and rough stones only.
+		static readonly string[] JunkGiftBlueprints = new string[]
 		{
-			int total = 0;
-			for (int i = 0; i < Values.Length; i++)
-			{
-				total += Values[i];
-			}
-			return total;
-		}
+			"Copper Nugget",
+			"Rough Agate",
+			"Silver Nugget",
+			"Rough Topaz",
+			"Rough Jasper",
+			"Rough Amethyst",
+			"Gold Nugget",
+			"Rough Sapphire",
+			"Rough Emerald",
+			"Rough Peridot"
+		};
+
+		static readonly int[] JunkGiftWeights = new int[]
+		{
+			12, 10, 8, 7, 5, 4, 4, 3, 2, 2
+		};
 
 		// ------------------------------------------------------------------
 		//  Event plumbing
@@ -153,107 +187,269 @@ namespace XRL.World.Parts
 			return ID == OwnerGetInventoryActionsEvent.ID || ID == InventoryActionEvent.ID;
 		}
 
-		/// <summary>
-		/// Fires on the player for every object being twiddled; E.Object is that object.
-		/// </summary>
+		/// <summary>Fires on the player for every object being twiddled; E.Object is it.</summary>
 		public override bool HandleEvent(OwnerGetInventoryActionsEvent E)
 		{
-			if (E.Object != null && !E.Object.IsInvalid() && IsPet(E.Object))
+			if (E.Object != null && !E.Object.IsInvalid())
 			{
-				E.AddAction(
-					Name: "Feed",
-					Display: "feed",
-					Command: FEED_COMMAND,
-					Key: 'f',
-					FireOnActor: true,   // -> InventoryActionEvent lands back on the player
-					Default: 10          // above Pettable's "Pet" (Default: 5)
-				);
+				if (IsPet(E.Object))
+				{
+					E.AddAction(
+						Name: "Feed",
+						Display: "feed",
+						Command: FEED_COMMAND,
+						Key: 'f',
+						FireOnActor: true,   // -> InventoryActionEvent lands back on the player
+						Default: 10          // above Pettable's "Pet" (Default: 5)
+					);
+				}
+				else if (E.Object.HasPart<Food>() && !E.Object.IsImportant() && E.Object.InInventory == The.Player)
+				{
+					E.AddAction(
+						Name: "Feed to pet",
+						Display: "feed to pet",
+						Command: FEED_FOOD_COMMAND,
+						Key: 'F',
+						FireOnActor: true,
+						Default: 9
+					);
+				}
+
+				// Selecting a carried liquid container, or a liquid pool next to the
+				// player: offer to apply a carried desalination pellet directly to it.
+				GameObject actor = E.Actor ?? The.Player;
+				bool carriedContainer = E.Object.LiquidVolume != null && (E.Object.InInventory == actor || E.Object.Equipped == actor);
+				bool adjacentPool = E.Object.IsOpenLiquidVolume() && actor != null && actor.InSameOrAdjacentCellTo(E.Object);
+				if ((carriedContainer || adjacentPool) && FindDesalinationPellet(actor) != null)
+				{
+					E.AddAction(
+						Name: "Apply desalination pellet",
+						Display: "apply desalination pellet",
+						Command: APPLY_PELLET_COMMAND,
+						Key: 'a',
+						FireOnActor: true,
+						Default: -5
+					);
+				}
 			}
 			return base.HandleEvent(E);
 		}
 
-		/// <summary>
-		/// Fires on the player because of FireOnActor above; E.Item is the pet.
-		/// </summary>
 		public override bool HandleEvent(InventoryActionEvent E)
 		{
 			if (E.Command == FEED_COMMAND)
 			{
-				// Always close the menu, on success and on failure alike, so the
-				// twiddle loop does not immediately re-open it.
-				Feed(E.Actor ?? The.Player, E.Item);
+				DoFeedPet(E.Actor ?? The.Player, E.Item);
+				E.RequestInterfaceExit();
+			}
+			else if (E.Command == FEED_FOOD_COMMAND)
+			{
+				DoFeedToPet(E.Actor ?? The.Player, E.Item);
+				E.RequestInterfaceExit();
+			}
+			else if (E.Command == APPLY_PELLET_COMMAND)
+			{
+				DoApplyPelletToContainer(E.Actor ?? The.Player, E.Item);
 				E.RequestInterfaceExit();
 			}
 			return base.HandleEvent(E);
 		}
 
 		// ------------------------------------------------------------------
-		//  The verb
+		//  Entry points
 		// ------------------------------------------------------------------
 
-		static void Feed(GameObject Actor, GameObject Pet)
+		/// <summary>Twiddled a pet: pick a food, then feed it.</summary>
+		static void DoFeedPet(GameObject Actor, GameObject Pet)
 		{
-			if (Actor == null || Actor.IsInvalid())
-			{
-				Actor = The.Player;
-			}
-			if (Actor == null || Pet == null || Pet.IsInvalid())
+			Actor = ResolveActor(Actor);
+			if (Actor == null || Pet == null || Pet.IsInvalid() || !IsPet(Pet))
 			{
 				return;
 			}
-			if (!IsPet(Pet))
+			if (Pet.DistanceTo(Actor) > FEED_RANGE)
 			{
+				Msg("&YYou are too far away to feed " + PetName(Pet) + ".");
 				return;
 			}
 
-			if (Pet.DistanceTo(The.Player) > FEED_RANGE)
+			List<GameObject> foodChoices = CollectFeedableFoods(Actor);
+			if (foodChoices.Count == 0)
 			{
-				IComponent<GameObject>.AddPlayerMessage(
-					"&YYou are too far away to feed " + Pet.GetDisplayName(Single: true, WithDefiniteArticle: true) + ".");
+				Msg("&YYou have nothing to feed " + PetName(Pet) + ".");
 				return;
 			}
 
-			GameObject food = FindFood(Actor);
-			if (food == null)
+			long today = GetToday();
+			Dictionary<string, int> counts = GetEffectiveCounts(Pet, today);
+
+			// Sort least-fed first (best value) so favorites float to the top; stable by name.
+			foodChoices.Sort(delegate (GameObject A, GameObject B)
 			{
-				IComponent<GameObject>.AddPlayerMessage(
-					"&YYou have nothing to feed " + Pet.GetDisplayName(Single: true, WithDefiniteArticle: true) + ".");
+				int ca = GetCount(counts, A.Blueprint);
+				int cb = GetCount(counts, B.Blueprint);
+				if (ca != cb)
+				{
+					return ca.CompareTo(cb);
+				}
+				string na = A.GetDisplayName(Single: true, NoColor: true) ?? A.Blueprint;
+				string nb = B.GetDisplayName(Single: true, NoColor: true) ?? B.Blueprint;
+				return string.Compare(na, nb, StringComparison.OrdinalIgnoreCase);
+			});
+
+			GameObject chosen = Popup.PickGameObject(
+				"Feed " + PetName(Pet) + " what?",
+				foodChoices,
+				AllowEscape: true,
+				ShowContext: false,
+				UseYourself: false,
+				ExtraLabels: delegate (GameObject o) { return GetCount(counts, o.Blueprint).ToString(); }
+			);
+			if (chosen == null)
+			{
+				return;
+			}
+			Feed(Actor, Pet, chosen);
+		}
+
+		/// <summary>Twiddled a food item: pick an adjacent pet, then feed it.</summary>
+		static void DoFeedToPet(GameObject Actor, GameObject FoodItem)
+		{
+			Actor = ResolveActor(Actor);
+			if (Actor == null || FoodItem == null || FoodItem.IsInvalid())
+			{
+				return;
+			}
+			if (!FoodItem.HasPart<Food>() || FoodItem.IsImportant() || FoodItem.InInventory != Actor)
+			{
+				Msg("&YYou can't feed that to a pet.");
 				return;
 			}
 
-			// 1. Flavour.  Must happen before Destroy(): Messaging validates its
-			//    arguments and silently does nothing if the object is already gone.
-			Messaging.XDidYToZ(Pet, "gobble", "up", food);
-
-			// 2. Consume the food.  This is the cost of the action.
-			food.Destroy();
-
-			// 3. Guaranteed: desalination pellets.
-			int pellets = Actor.ReceiveObject(PELLET_BLUEPRINT, PELLET_COUNT);
-			if (pellets > 0)
+			List<GameObject> pets = CollectAdjacentPets(Actor);
+			if (pets.Count == 0)
 			{
-				Messaging.XDidYToZ(Pet, "hand", null, Actor, pellets + " desalination pellets");
+				Msg("&YThere is no pet nearby to feed.");
+				return;
 			}
 
-			// 4. The roll: one random gift from the weighted table.
-			string blueprint = RollGiftBlueprint();
+			GameObject pet;
+			if (pets.Count == 1)
+			{
+				pet = pets[0];
+			}
+			else
+			{
+				pet = Popup.PickGameObject(
+					"Feed which pet?",
+					pets,
+					AllowEscape: true,
+					ShowContext: false,
+					UseYourself: false
+				);
+				if (pet == null)
+				{
+					return;
+				}
+			}
+			Feed(Actor, pet, FoodItem);
+		}
+
+		// ------------------------------------------------------------------
+		//  The feeding
+		// ------------------------------------------------------------------
+
+		static void Feed(GameObject Actor, GameObject Pet, GameObject FoodItem)
+		{
+			if (Actor == null || Actor.IsInvalid() || Pet == null || Pet.IsInvalid() || FoodItem == null || FoodItem.IsInvalid())
+			{
+				return;
+			}
+			if (!IsPet(Pet) || Pet.DistanceTo(Actor) > FEED_RANGE)
+			{
+				Msg("&YYou are too far away to feed " + PetName(Pet) + ".");
+				return;
+			}
+			if (FoodItem.InInventory != Actor)
+			{
+				Msg("&YYou no longer have that.");
+				return;
+			}
+
+			string foodBlueprint = FoodItem.Blueprint;
+			string foodLabel = FoodItem.GetDisplayName(Single: true, NoColor: true) ?? foodBlueprint;
+
+			long today = GetToday();
+			Dictionary<string, int> counts = GetEffectiveCounts(Pet, today);
+			int fedBefore = GetCount(counts, foodBlueprint);
+			bool tired = fedBefore >= TIRED_THRESHOLD;
+
+			// 1. Flavour.  Before Destroy(): Messaging drops messages for objects
+			//    it can't validate, and a stacked food's last removal invalidates it.
+			Messaging.XDidYToZ(Pet, "gobble", "up", FoodItem);
+
+			// 2. The exclamation (love / getting tired / loathe).
+			if (tired)
+			{
+				Messaging.XDidY(Pet, "make", Extra: "a face at the " + foodLabel + ". &r\"Ugh, not this again!\"");
+			}
+			else if (fedBefore >= 3)
+			{
+				Messaging.XDidY(Pet, "accept", Extra: "the " + foodLabel + ", a bit wearily. &y\"This again?\"");
+			}
+			else if (fedBefore == 0)
+			{
+				Messaging.XDidY(Pet, "perk", Extra: "up at the " + foodLabel + ". &G\"Ooh, something new!\"");
+			}
+			else
+			{
+				Messaging.XDidY(Pet, "wag", Extra: "happily over the " + foodLabel + ". &g\"My favorite!\"");
+			}
+
+			// 3. Consume one.  Stacker cancels Destroy() on stacks and decrements
+			//    StackCount (Stacker.HandleEvent(BeforeDestroyObjectEvent)), so this
+			//    always costs exactly 1 item.
+			FoodItem.Destroy();
+
+			// 4. Record the feeding (persists on the pet).  Stored count becomes
+			//    effective-before + 1 at today's day.
+			counts[foodBlueprint] = fedBefore + 1;
+			SetFeedCounts(Pet, counts, today);
+
+			// 5. Treasure right away as thanks (downgraded if the pet is tired).
+			string blueprint = RollGiftBlueprint(tired);
 			GameObject gift = (blueprint != null) ? GameObject.Create(blueprint) : null;
 			if (gift != null && Actor.ReceiveObject(gift))
 			{
 				Messaging.XDidYToZ(Pet, "give", null, Actor, gift.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
 			}
 
-			// 5. It costs a turn.
+			// 6. Pellets: produce 1 locally now and share it, then the rest over
+			//    the course of the day while digesting (produced locally, pet
+			//    approaches to share each when ready).
+			GratefulPetsDigestion digestion = Pet.RequirePart<GratefulPetsDigestion>();
+			digestion.BeginDigestion(PELLETS_NOW, PELLETS_DIGESTING, CurrentTick());
+
+			// 7. It costs a turn.
 			Actor.UseEnergy(FEED_ENERGY_COST, "Feed Pet");
 		}
 
-		/// <summary>First non-important item in inventory that has a Food part.</summary>
-		static GameObject FindFood(GameObject Actor)
+		// ------------------------------------------------------------------
+		//  Food & pet discovery
+		// ------------------------------------------------------------------
+
+		/// <summary>
+		/// One representative GameObject per feedable food blueprint in inventory
+		/// (non-important, has a Food part).  Used as the picker list.
+		/// </summary>
+		static List<GameObject> CollectFeedableFoods(GameObject Actor)
 		{
+			List<GameObject> result = new List<GameObject>();
+			HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 			List<GameObject> inventory = Actor.GetInventory();
 			if (inventory == null)
 			{
-				return null;
+				return result;
 			}
 			for (int i = 0; i < inventory.Count; i++)
 			{
@@ -266,35 +462,274 @@ namespace XRL.World.Parts
 				{
 					continue;
 				}
-				return item;
+				if (seen.Add(item.Blueprint))
+				{
+					result.Add(item);
+				}
+			}
+			return result;
+		}
+
+		static List<GameObject> CollectAdjacentPets(GameObject Actor)
+		{
+			List<GameObject> result = new List<GameObject>();
+			Cell cell = Actor?.CurrentCell;
+			if (cell == null)
+			{
+				return result;
+			}
+			foreach (Cell adjacent in cell.GetAdjacentCells(1, LocalOnly: true, BuiltOnly: false))
+			{
+				if (adjacent == null)
+				{
+					continue;
+				}
+				foreach (GameObject obj in adjacent.GetObjects())
+				{
+					if (obj != null && !obj.IsInvalid() && IsPet(obj))
+					{
+						result.Add(obj);
+					}
+				}
+			}
+			return result;
+		}
+
+		// ------------------------------------------------------------------
+		//  Per-pet taste log (persisted in a serialized string Property)
+		//
+		//  Format:  blueprint \t storedCount \t day  (one record per line)
+		//  Effective count decays by 1 per in-game day since 'day', floored at 0.
+		// ------------------------------------------------------------------
+
+		static long GetToday()
+		{
+			long ticks = (long)Calendar.TotalTimeTicks;
+			if (ticks < 0)
+			{
+				ticks = 0;
+			}
+			return ticks / TURNS_PER_DAY;
+		}
+
+		static Dictionary<string, int> GetEffectiveCounts(GameObject Pet, long Today)
+		{
+			Dictionary<string, int> result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+			string raw = Pet?.GetStringProperty(FEEDLOG_PROPERTY);
+			if (string.IsNullOrEmpty(raw))
+			{
+				return result;
+			}
+			string[] lines = raw.Split(new char[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+			for (int i = 0; i < lines.Length; i++)
+			{
+				string[] parts = lines[i].Split('\t');
+				if (parts.Length < 3)
+				{
+					continue;
+				}
+				string bp = parts[0];
+				int stored;
+				long day;
+				if (string.IsNullOrEmpty(bp) || !int.TryParse(parts[1], out stored) || !long.TryParse(parts[2], out day))
+				{
+					continue;
+				}
+				long decay = Today - day;
+				if (decay < 0)
+				{
+					decay = 0;
+				}
+				int effective = stored - (int)decay;
+				if (effective > 0)
+				{
+					result[bp] = effective;
+				}
+			}
+			return result;
+		}
+
+		static void SetFeedCounts(GameObject Pet, Dictionary<string, int> Counts, long Today)
+		{
+			if (Pet == null)
+			{
+				return;
+			}
+			List<string> lines = new List<string>();
+			foreach (KeyValuePair<string, int> kv in Counts)
+			{
+				if (kv.Value > 0 && !string.IsNullOrEmpty(kv.Key))
+				{
+					lines.Add(kv.Key + "\t" + kv.Value + "\t" + Today);
+				}
+			}
+			if (lines.Count == 0)
+			{
+				Pet.SetStringProperty(FEEDLOG_PROPERTY, null, RemoveIfNull: true);
+			}
+			else
+			{
+				Pet.SetStringProperty(FEEDLOG_PROPERTY, string.Join("\n", lines.ToArray()));
+			}
+		}
+
+		static int GetCount(Dictionary<string, int> Counts, string Blueprint)
+		{
+			int value;
+			if (Counts != null && !string.IsNullOrEmpty(Blueprint) && Counts.TryGetValue(Blueprint, out value))
+			{
+				return value;
+			}
+			return 0;
+		}
+
+		// ------------------------------------------------------------------
+		//  Gifts & helpers
+		// ------------------------------------------------------------------
+
+		static string RollGiftBlueprint(bool Tired)
+		{
+			if (Tired)
+			{
+				return RollWeighted(JunkGiftBlueprints, JunkGiftWeights);
+			}
+			return RollWeighted(GiftBlueprints, GiftWeights);
+		}
+
+		static string RollWeighted(string[] Blueprints, int[] Weights)
+		{
+			if (Blueprints == null || Blueprints.Length == 0 || Weights == null || Weights.Length == 0)
+			{
+				return null;
+			}
+			int total = 0;
+			for (int i = 0; i < Weights.Length; i++)
+			{
+				total += Weights[i];
+			}
+			if (total <= 0)
+			{
+				return null;
+			}
+			int roll = Stat.Random(1, total);
+			for (int i = 0; i < Blueprints.Length && i < Weights.Length; i++)
+			{
+				roll -= Weights[i];
+				if (roll <= 0)
+				{
+					return Blueprints[i];
+				}
+			}
+			return Blueprints[Blueprints.Length - 1];
+		}
+
+		static GameObject ResolveActor(GameObject Actor)
+		{
+			if (Actor != null && !Actor.IsInvalid())
+			{
+				return Actor;
+			}
+			return The.Player;
+		}
+
+		static string PetName(GameObject Pet)
+		{
+			return Pet.GetDisplayName(Single: true, WithDefiniteArticle: true);
+		}
+
+		static void Msg(string Text)
+		{
+			IComponent<GameObject>.AddPlayerMessage(Text);
+		}
+
+		public static long CurrentTick()
+		{
+			try
+			{
+				return (long)Calendar.TotalTimeTicks;
+			}
+			catch
+			{
+				return 0;
+			}
+		}
+
+		// ------------------------------------------------------------------
+		//  Desalination pellet -> container
+		// ------------------------------------------------------------------
+
+		static GameObject FindDesalinationPellet(GameObject Actor)
+		{
+			Actor = ResolveActor(Actor);
+			List<GameObject> inventory = Actor?.GetInventory();
+			if (inventory == null)
+			{
+				return null;
+			}
+			for (int i = 0; i < inventory.Count; i++)
+			{
+				GameObject item = inventory[i];
+				if (item != null && !item.IsInvalid() && item.Blueprint == PELLET_BLUEPRINT)
+				{
+					return item;
+				}
 			}
 			return null;
 		}
 
-		/// <summary>Weighted roll over the gift table. Total weight is 99.</summary>
-		static string RollGiftBlueprint()
+		/// <summary>
+		/// Apply a carried desalination pellet directly to a liquid container.
+		/// Mirrors DesalinationPellet.HandleEvent(InventoryActionEvent "Apply").
+		/// </summary>
+		static void DoApplyPelletToContainer(GameObject Actor, GameObject Container)
 		{
-			if (GiftBlueprints.Length == 0 || GiftWeightTotal <= 0)
+			Actor = ResolveActor(Actor);
+			if (Actor == null || Actor.IsInvalid() || Container == null || Container.IsInvalid())
 			{
-				return null;
+				return;
 			}
-			int roll = Stat.Random(1, GiftWeightTotal);
-			for (int i = 0; i < GiftBlueprints.Length && i < GiftWeights.Length; i++)
+			if (!Actor.CheckFrozen(Telepathic: false, Telekinetic: true))
 			{
-				roll -= GiftWeights[i];
-				if (roll <= 0)
-				{
-					return GiftBlueprints[i];
-				}
+				return;
 			}
-			// Unreachable unless the arrays disagree; fall back to the last entry.
-			return GiftBlueprints[GiftBlueprints.Length - 1];
+			if (Container.LiquidVolume == null)
+			{
+				Actor.ShowFailure("That can't hold liquid.");
+				return;
+			}
+
+			GameObject pellet = FindDesalinationPellet(Actor);
+			if (pellet == null)
+			{
+				Actor.ShowFailure("You have no desalination pellets.");
+				return;
+			}
+
+			DesalinationPellet part = pellet.GetPart<DesalinationPellet>();
+			if (part == null)
+			{
+				Actor.ShowFailure("That pellet can't be used.");
+				return;
+			}
+
+			// Capture names before purification: PurifyLiquid(Single:true) consumes
+			// one (RemoveOne) and obliterates the purifier, which can invalidate
+			// the pellet reference when it's the last in a stack.
+			string pelletName = pellet.an(int.MaxValue, null, null, AsIfKnown: false, Single: true);
+			string containerName = Container.t(int.MaxValue, null, null, AsIfKnown: false, Single: true);
+			string result = part.PurifyLiquid(Container, Actor, ShowMessage: false, Single: true, Actor.IsPlayer());
+			string message = "You drop " + pelletName + " into " + containerName + ".";
+			if (!string.IsNullOrEmpty(result))
+			{
+				message = message + "\n\n" + result;
+			}
+			IComponent<GameObject>.EmitMessage(Actor, message, ' ', FromDialog: true);
+			Actor.UseEnergy(1000, "Item Applicator");
 		}
 
 		/// <summary>
-		/// Real pets only: the Pet / StartingPet tag, or the Pettable part.
-		/// Deliberately does NOT use IsPlayerLed(), so proselytized or beguiled
-		/// followers are excluded.
+		/// Real pets only: Pet / StartingPet tag, or the Pettable part.
+		/// Deliberately not IsPlayerLed(), so beguiled/proselytized followers are excluded.
 		/// </summary>
 		public static bool IsPet(GameObject obj)
 		{
@@ -307,6 +742,197 @@ namespace XRL.World.Parts
 				return true;
 			}
 			return obj.HasPart<Pettable>();
+		}
+	}
+
+	/// <summary>
+	/// Lives on a fed pet. Produces desalination pellets locally on schedule and
+	/// approaches the party leader to share them when ready.
+	/// </summary>
+	[Serializable]
+	public class GratefulPetsDigestion : IPart
+	{
+		public int RemainingToProduce;
+		public long NextProductionTick;
+		public int HeldForDelivery;
+
+		public void BeginDigestion(int ProduceNow, int ProduceLater, long NowTick)
+		{
+			// Produce the immediate pellet(s) locally and try to share now.
+			for (int i = 0; i < ProduceNow; i++)
+			{
+				ProduceOne();
+			}
+			RemainingToProduce += ProduceLater;
+			if (RemainingToProduce > 0 && NextProductionTick <= 0)
+			{
+				NextProductionTick = NowTick + GratefulPets.DIGESTION_INTERVAL;
+			}
+			TryDeliverOrApproach();
+		}
+
+		public override bool WantTurnTick()
+		{
+			return true;
+		}
+
+		public override void TurnTick(long TimeTick, int Amount)
+		{
+			TickDigestion();
+		}
+
+		public void TickDigestion()
+		{
+			if (ParentObject == null || ParentObject.IsInvalid())
+			{
+				return;
+			}
+			long now = GratefulPets.CurrentTick();
+			while (RemainingToProduce > 0 && NextProductionTick > 0 && now >= NextProductionTick)
+			{
+				ProduceOne();
+				RemainingToProduce--;
+				NextProductionTick += GratefulPets.DIGESTION_INTERVAL;
+			}
+			if (RemainingToProduce <= 0)
+			{
+				NextProductionTick = 0;
+			}
+			TryDeliverOrApproach();
+		}
+
+		void ProduceOne()
+		{
+			if (ParentObject == null || ParentObject.IsInvalid())
+			{
+				return;
+			}
+			GameObject pellet = GameObject.Create(GratefulPets.PELLET_BLUEPRINT);
+			if (pellet == null)
+			{
+				return;
+			}
+			pellet.SetIntProperty("GratefulPets.GiftPellet", 1);
+			ParentObject.ReceiveObject(pellet);
+			HeldForDelivery++;
+		}
+
+		void TryDeliverOrApproach()
+		{
+			if (HeldForDelivery <= 0)
+			{
+				// Reconcile in case of odd state.
+				HeldForDelivery = CountHeldGiftPellets();
+				if (HeldForDelivery <= 0)
+				{
+					return;
+				}
+			}
+
+			GameObject player = The.Player;
+			if (player == null || player.IsInvalid() || ParentObject == null || ParentObject.IsInvalid())
+			{
+				return;
+			}
+			if (!ParentObject.IsPlayerLed())
+			{
+				return;
+			}
+
+			if (ParentObject.DistanceTo(player) <= 1)
+			{
+				DeliverOne(player);
+				// If more remain, keep trying (next tick or immediate nudges are fine;
+				// delivering one per tick is gentle on message spam).
+				if (HeldForDelivery > 0)
+				{
+					EnsureApproach(player);
+				}
+			}
+			else
+			{
+				EnsureApproach(player);
+			}
+		}
+
+		void DeliverOne(GameObject Player)
+		{
+			GameObject pellet = FindHeldGiftPellet();
+			if (pellet == null)
+			{
+				HeldForDelivery = 0;
+				return;
+			}
+			pellet.RemoveIntProperty("GratefulPets.GiftPellet");
+			// Move from pet to player.
+			pellet.RemoveFromContext();
+			if (Player.ReceiveObject(pellet))
+			{
+				Messaging.XDidYToZ(ParentObject, "hand", null, Player, "a desalination pellet");
+			}
+			else
+			{
+				// Fallback: try by blueprint so the player isn't cheated.
+				Player.ReceiveObject(GratefulPets.PELLET_BLUEPRINT, 1);
+				pellet.Obliterate();
+				Messaging.XDidYToZ(ParentObject, "hand", null, Player, "a desalination pellet");
+			}
+			HeldForDelivery--;
+			if (HeldForDelivery < 0)
+			{
+				HeldForDelivery = CountHeldGiftPellets();
+			}
+		}
+
+		void EnsureApproach(GameObject Player)
+		{
+			if (ParentObject?.Brain == null || Player == null)
+			{
+				return;
+			}
+			// Pet already follows the leader; push a move goal if it's not already
+			// right next to the player so it actively closes distance to share.
+			if (ParentObject.DistanceTo(Player) > 1)
+			{
+				ParentObject.Brain.PushGoal(new MoveTo(Player, careful: false, overridesCombat: false, 1));
+			}
+		}
+
+		GameObject FindHeldGiftPellet()
+		{
+			List<GameObject> inv = ParentObject?.GetInventory();
+			if (inv == null)
+			{
+				return null;
+			}
+			for (int i = 0; i < inv.Count; i++)
+			{
+				GameObject item = inv[i];
+				if (item != null && !item.IsInvalid() && item.GetIntProperty("GratefulPets.GiftPellet") > 0)
+				{
+					return item;
+				}
+			}
+			return null;
+		}
+
+		int CountHeldGiftPellets()
+		{
+			int n = 0;
+			List<GameObject> inv = ParentObject?.GetInventory();
+			if (inv == null)
+			{
+				return 0;
+			}
+			for (int i = 0; i < inv.Count; i++)
+			{
+				GameObject item = inv[i];
+				if (item != null && !item.IsInvalid() && item.GetIntProperty("GratefulPets.GiftPellet") > 0)
+				{
+					n++;
+				}
+			}
+			return n;
 		}
 	}
 }

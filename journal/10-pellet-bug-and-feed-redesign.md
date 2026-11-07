@@ -1,7 +1,8 @@
 # 10 — The missing-pellets bug, and the feed redesign
 
 **Date:** 2026-11-07 (second half of the session)
-**Status:** investigation **inconclusive**, redesign **specified**. Nothing here is shipped yet.
+**Status:** **root cause found — there was never a bug** (see 1.7). Redesign specified, not yet
+shipped.
 
 ---
 
@@ -281,3 +282,107 @@ were being rewritten mid-session), so any rebuilt mod needs a **restart** to be 
 * Junk tier contents: not yet chosen. Natural candidates from the existing table are the four
   nuggets and the rough (unpolished) stones; `Polished *`, figurines, `UbernostrumTonic` and
   `Chiral Rings` stay in the full tier.
+
+## 1.7 Root cause — resolved (user report, 2026-11-07)
+
+There was **no inventory bug**. `Desalination Pellet` is an `Examiner` artifact:
+
+```xml
+<!-- Base/ObjectBlueprints/Items.xml:11446 / Data.xml:37 -->
+<part Name="Examiner" Complexity="2" Unknown="UnknownOddTrinket" />
+```
+
+`UnknownOddTrinket` (`BaseUnknown`) renders as an **"odd trinket"** with an unidentified tile/description until the player has identified/understood that kind of item (epistemic status/`UnderstandingTable` in `XRL.World.Parts/Examiner.cs`). The pellet *was* received (the message and the `ReceiveObject` return value were both truthful); it just wasn't recognisable in inventory yet. **Lesson:** a "missing" reward can be an identification/epistemic-status issue — check `Examiner`/`Unknown` before chasing inventory code.
+
+## Part 5 — Pellet pacing (digestion) redesign
+
+### 5.1 Requirement (user-specified, 2026-11-07)
+
+* Feeding produces **1 pellet right away**, then the **other 4 over the course of the day** while digesting.
+* Each pellet is given to the player **when it has produced it** (not all at once).
+* The **treasure is given right away** as thanks (unchanged).
+* Clarification: the pet **produces the pellet locally, then has a desire to approach and share it**.
+
+### 5.2 Key native precedent — `GiveATreatToPartyLeader` *(verified, decomp)*
+
+`XRL.World.AI.GoalHandlers/GiveATreatToPartyLeader.cs` is almost exactly this behavior:
+
+```csharp
+public override void TakeAction()
+{
+    if (!ParentObject.IsPlayerLed()) { Pop(); return; }
+    if (ParentObject.DistanceTo(The.Player) <= 1)
+    {
+        GameObject treat = GameObject.Create(PopulationManager.RollOneFrom(treatTable).Blueprint);
+        Messaging.XDidYToZ(ParentObject, "give", null, The.Player, "a treat");
+        The.Player.ReceiveObject(treat);
+        Pop();
+    }
+    else
+    {
+        ParentBrain.PushGoal(new MoveTo(The.Player, careful: false, overridesCombat: false, 1));
+    }
+}
+```
+
+Triggered by `XRL.World.Parts/GivesTreat` (the dead hook noted in entry 05) via
+`ParentObject.Brain.PushGoal(new GiveATreatToPartyLeader(TreatTable))`, guarded so it doesn't
+stack (`!Goals.Items.Any(i => i is GiveATreatToPartyLeader)`).
+
+**Implications for the redesign:**
+* "Desire to approach and share" = push a `MoveTo(The.Player, ..., shortBy:1)` / delivery goal
+  on the pet's `Brain` (`Brain.PushGoal`, `GameObject.DistanceTo`, `Brain.cs:1382`).
+* **Produce locally** means the pellet object is created into the **pet's** inventory/context
+  when due (not granted directly to the player), and transferred to the player on delivery
+  (`The.Player.ReceiveObject(pellet)`) when adjacent.
+* State (remaining pellets + next-production tick) must live/persist with the **pet** (a
+  `[Serializable]` part on the pet, or pet `Property` — `Property` is serialized, `GameObject.cs:1916/2060`).
+  Production timing can run off the pet's `WantTurnTick`/`TurnTick(long TimeTick, int Amount)`
+  (`IComponent.cs:4272/4280`) or `SingletonEvent<EndTurnEvent>.ID` handled on the pet.
+* Delivery runs when produced-while-carried *and* adjacent: if not adjacent, keep the pellet
+  held by the pet and (re)push an approach/deliver goal so the pet's follow + goal brings it
+  into range — mirroring `GiveATreatToPartyLeader.TakeAction`.
+* 4 pellets over a day: `Calendar.TurnsPerDay == 1200` (`Calendar.cs:13`), so interval
+  **300 turns** → pellets at now+300, +600, +900, +1200 (1 was given immediately).
+
+### 5.3 Interim implementation note (superseded by 5.2)
+
+A first pass added a **player-side** digestion tick (state on the player `GratefulPets.Digestions`
+property, processed on the player's `EndTurnEvent`, granting pellets directly to the player on a
+300-turn schedule). That satisfied the *timing* but **not** "produce locally, approach and share".
+It must be reworked to the pet-side/local-production + approach/deliver model above, ideally
+reusing the `GiveATreatToPartyLeader`/`MoveTo` goal pattern rather than inventing delivery.
+
+## Open questions (updated)
+
+* `GoalHandler` subclasses defined by mods: confirm they serialize/deserialize safely when pushed
+  onto a brain (saves mid-goal). If risky, prefer a `[Serializable]` part on the pet driving
+  `MoveTo` pushes instead of a custom saved `GoalHandler`.
+* Whether a pet that is dead, lost, or in another zone should still "produce" pellets (hold for
+  later delivery vs. forfeit). Simplest/safest: keep the schedule on the pet part; if the pet
+  object is gone, pellets are forfeit — but confirm this matches intent.
+* Distance/zone rules for delivery: require `DistanceTo(The.Player) <= 1` and same context as
+  `GiveATreatToPartyLeader` (it checks `IsPlayerLed()` and adjacency) — sensible default.
+
+## Part 6 — Status (implemented, not yet compile-verified in this pass)
+
+Implemented in `mod/Scripts/GratefulPets.cs` and synced to
+`~/.config/unity3d/Freehold Games/CavesOfQud/Mods/GratefulPets/`:
+
+* Food picker on pet feed (`Popup.PickGameObject` + `ExtraLabels`) sorted by effective per-pet
+  feed count `[n]`; per-pet taste log in serialized property `GratefulPets.FeedLog` with
+  −1/day decay (`Calendar.TotalTimeTicks / TurnsPerDay`); tired ≥ 5 ⇒ downgraded (junk) gift;
+  pellets never downgraded; love/weary/loathe exclamations.
+* Inventory-side feeding: `Feed to pet` on a carried food item; 1 adjacent pet → direct,
+  2+ → pet picker.
+* `apply desalination pellet` on the player's **carried** liquid containers and on **adjacent
+  open liquid pools** (uses `DesalinationPellet.PurifyLiquid`, vanilla message path).
+* Digestion pacing reworked to **local production + approach/share** (Part 5.2): treasure now;
+  1 pellet produced locally and shared immediately if adjacent; 4 more produced into the pet on
+  a 300-turn schedule via `[Serializable]` `GratefulPetsDigestion` and delivered when adjacent,
+  nudging with `MoveTo(The.Player, shortBy:1)`.
+
+**Not verified here:** in-game compile/runtime (game was running earlier; needs restart, then
+`build_log.txt` → `GRATEFUL PETS` / `Success :)`) and the approach/deliver feel across zones,
+death/un-led states, and message spam. Treat behavior as implemented-but-unconfirmed until a
+fresh launch + live test.
