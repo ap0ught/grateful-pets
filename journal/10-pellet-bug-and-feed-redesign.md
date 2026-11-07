@@ -386,3 +386,13 @@ Implemented in `mod/Scripts/GratefulPets.cs` and synced to
 `build_log.txt` → `GRATEFUL PETS` / `Success :)`) and the approach/deliver feel across zones,
 death/un-led states, and message spam. Treat behavior as implemented-but-unconfirmed until a
 fresh launch + live test.
+
+* **Chat gate (2026-11-07, rolled back):** attempted to block feeding when chat is unavailable via `CanStartConversationEvent.Check`. Found that "too busy (fighting/on fire)" is enforced by `ConversationScript.AttemptConversation` (not `CanStartConversationEvent.Check`), and feeding a combat-busy pet was intentionally possible before — so the gate was rolled back per user choice; feeding remains available to real pets as before. Revisit only with a precise "fundamentally can't converse" rule if needed.
+
+* **Feed moved under chat (2026-11-07):** removed the top-level pet twiddle "Feed" action and inject a `"Let me feed you."` choice (`GratefulPets_Feed`, `Target=End`) into the pet conversation `StartNode` on `BeginConversationEvent` (player part receives via `IConversationMinEvent.DispatchAll`). Choice runs `GratefulPetsFeedChoicePart` (`EnterElementEvent`) → `DoFeedPet(The.Player, The.Speaker)`. This inherits chat's gating for free (ConversationScript busy/fighting/on-fire guards, range/can-start flow). Inventory "Feed to pet" on carried food items remains. **Compile/runtime unverified.**
+
+## Part 7 — Fixes after live testing (2026-11-07)
+
+* **Compile fix (CS0246):** `GratefulPetsFeedChoicePart` lives in `XRL.World.Conversations.Parts` but was referenced unqualified from `XRL.World.Parts.GratefulPets.InjectFeedChoice` — fully qualified the runtime instantiation.
+* **Immediate pellet not delivered (user repro: treasure given, no pellet):** `GratefulPetsDigestion.TryDeliverOrApproach` returned early on `!ParentObject.IsPlayerLed()`, so the locally-produced pellet was never handed over (and the “1 now” share failed). **Fix:** deliver when `DistanceTo(player) <= 1` regardless of `IsPlayerLed()`; only push the `MoveTo` approach nudge when not adjacent *and* player-led. User confirmed: “that works much better” (immediate treasure + pellet handoff). *Note:* that specific pre-fix feeding ran old compiled code, so its immediate pellet isn’t retroactive.
+* **Digestion-over-time (4 pellets / 300 turns) still user-testing** (natural wait). Remainder of Part 6’s “not verified” still applies to cross-zone/death/un-led edge cases and message spam.

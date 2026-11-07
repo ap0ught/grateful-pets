@@ -45,6 +45,7 @@ using XRL.UI;
 using XRL.World;
 using XRL.World.AI.GoalHandlers;
 using XRL.World.Capabilities;
+using XRL.World.Conversations;
 
 namespace GratefulPetsMod
 {
@@ -184,7 +185,7 @@ namespace XRL.World.Parts
 			{
 				return true;
 			}
-			return ID == OwnerGetInventoryActionsEvent.ID || ID == InventoryActionEvent.ID;
+			return ID == OwnerGetInventoryActionsEvent.ID || ID == InventoryActionEvent.ID || ID == BeginConversationEvent.ID;
 		}
 
 		/// <summary>Fires on the player for every object being twiddled; E.Object is it.</summary>
@@ -192,18 +193,7 @@ namespace XRL.World.Parts
 		{
 			if (E.Object != null && !E.Object.IsInvalid())
 			{
-				if (IsPet(E.Object))
-				{
-					E.AddAction(
-						Name: "Feed",
-						Display: "feed",
-						Command: FEED_COMMAND,
-						Key: 'f',
-						FireOnActor: true,   // -> InventoryActionEvent lands back on the player
-						Default: 10          // above Pettable's "Pet" (Default: 5)
-					);
-				}
-				else if (E.Object.HasPart<Food>() && !E.Object.IsImportant() && E.Object.InInventory == The.Player)
+				if (E.Object.HasPart<Food>() && !E.Object.IsImportant() && E.Object.InInventory == The.Player)
 				{
 					E.AddAction(
 						Name: "Feed to pet",
@@ -255,12 +245,24 @@ namespace XRL.World.Parts
 			return base.HandleEvent(E);
 		}
 
+		public override bool HandleEvent(BeginConversationEvent E)
+		{
+			// "Feed as an option under chat" — inject into the conversation so
+			// chat's availability logic (range, busy/fighting, can-start) applies
+			// for free. Only for real pets.
+			if (E != null && E.StartNode != null && IsPet(E.SpeakingWith))
+			{
+				InjectFeedChoice(E.StartNode);
+			}
+			return base.HandleEvent(E);
+		}
+
 		// ------------------------------------------------------------------
 		//  Entry points
 		// ------------------------------------------------------------------
 
-		/// <summary>Twiddled a pet: pick a food, then feed it.</summary>
-		static void DoFeedPet(GameObject Actor, GameObject Pet)
+		/// <summary>Pick a food, then feed the pet. (Also used by the chat choice.)</summary>
+		public static void DoFeedPet(GameObject Actor, GameObject Pet)
 		{
 			Actor = ResolveActor(Actor);
 			if (Actor == null || Pet == null || Pet.IsInvalid() || !IsPet(Pet))
@@ -472,6 +474,7 @@ namespace XRL.World.Parts
 
 		static List<GameObject> CollectAdjacentPets(GameObject Actor)
 		{
+			Actor = ResolveActor(Actor);
 			List<GameObject> result = new List<GameObject>();
 			Cell cell = Actor?.CurrentCell;
 			if (cell == null)
@@ -655,6 +658,48 @@ namespace XRL.World.Parts
 		}
 
 		// ------------------------------------------------------------------
+		//  Conversation injection: "Feed" lives under chat so conversation
+		//  gating (range, busy/fighting, can-start) applies for free.
+		// ------------------------------------------------------------------
+
+		public const string FEED_CHOICE_ID = "GratefulPets_Feed";
+
+		static void InjectFeedChoice(Node StartNode)
+		{
+			if (StartNode == null)
+			{
+				return;
+			}
+			if (StartNode.Elements != null)
+			{
+				for (int i = 0; i < StartNode.Elements.Count; i++)
+				{
+					Choice existing = StartNode.Elements[i] as Choice;
+					if (existing != null && existing.ID == FEED_CHOICE_ID)
+					{
+						return;
+					}
+				}
+			}
+
+			Choice choice = new Choice();
+			choice.Parent = StartNode;
+			choice.ID = FEED_CHOICE_ID;
+			choice.Text = "Let me feed you.";
+			choice.Ordinal = 5;
+			choice.Target = "End"; // keep Target last (it adjusts priority)
+
+			XRL.World.Conversations.Parts.GratefulPetsFeedChoicePart part = new XRL.World.Conversations.Parts.GratefulPetsFeedChoicePart();
+			part.ParentElement = choice;
+			choice.Parts = new List<IConversationPart>(1);
+			choice.Parts.Add(part);
+			part.Initialize();
+
+			StartNode.Elements = StartNode.Elements ?? new List<IConversationElement>();
+			StartNode.Elements.Add(choice);
+		}
+
+		// ------------------------------------------------------------------
 		//  Desalination pellet -> container
 		// ------------------------------------------------------------------
 
@@ -743,6 +788,7 @@ namespace XRL.World.Parts
 			}
 			return obj.HasPart<Pettable>();
 		}
+
 	}
 
 	/// <summary>
@@ -834,22 +880,16 @@ namespace XRL.World.Parts
 			{
 				return;
 			}
-			if (!ParentObject.IsPlayerLed())
-			{
-				return;
-			}
 
 			if (ParentObject.DistanceTo(player) <= 1)
 			{
 				DeliverOne(player);
-				// If more remain, keep trying (next tick or immediate nudges are fine;
-				// delivering one per tick is gentle on message spam).
-				if (HeldForDelivery > 0)
-				{
-					EnsureApproach(player);
-				}
+				// If more remain, deliver gradually on subsequent ticks.
+				return;
 			}
-			else
+
+			// Not adjacent: nudge a player-led pet to approach and share.
+			if (ParentObject.IsPlayerLed())
 			{
 				EnsureApproach(player);
 			}
@@ -933,6 +973,28 @@ namespace XRL.World.Parts
 				}
 			}
 			return n;
+		}
+	}
+}
+
+namespace XRL.World.Conversations.Parts
+{
+	public class GratefulPetsFeedChoicePart : IConversationPart
+	{
+		public override bool WantEvent(int ID, int Propagation)
+		{
+			return base.WantEvent(ID, Propagation) || ID == EnterElementEvent.ID;
+		}
+
+		public override bool HandleEvent(EnterElementEvent E)
+		{
+			GameObject pet = The.Speaker;
+			GameObject actor = The.Player;
+			if (pet != null && actor != null && XRL.World.Parts.GratefulPets.IsPet(pet))
+			{
+				XRL.World.Parts.GratefulPets.DoFeedPet(actor, pet);
+			}
+			return base.HandleEvent(E);
 		}
 	}
 }
