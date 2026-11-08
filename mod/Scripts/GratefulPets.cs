@@ -957,7 +957,7 @@ namespace XRL.World.Parts
 			return Pet.GetDisplayName(Single: true, WithDefiniteArticle: true);
 		}
 
-		static void Msg(string Text)
+		public static void Msg(string Text)
 		{
 			IComponent<GameObject>.AddPlayerMessage(Text);
 		}
