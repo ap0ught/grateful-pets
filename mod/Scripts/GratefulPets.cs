@@ -1458,6 +1458,31 @@ namespace XRL.World.Parts
 			TryDeliverOrApproach();
 		}
 
+		public void DebugAdvanceTurns(int Turns)
+		{
+			if (Turns <= 0 || RemainingToProduce <= 0)
+			{
+				return;
+			}
+
+			int due = Turns / GratefulPets.DIGESTION_INTERVAL;
+			for (int i = 0; i < due && RemainingToProduce > 0; i++)
+			{
+				ProduceOne();
+				RemainingToProduce--;
+			}
+
+			if (RemainingToProduce <= 0)
+			{
+				NextProductionTick = 0;
+			}
+			else
+			{
+				NextProductionTick = GratefulPets.CurrentTick() + GratefulPets.DIGESTION_INTERVAL;
+			}
+			TryDeliverOrApproach();
+		}
+
 		void ProduceOne()
 		{
 			if (ParentObject == null || ParentObject.IsInvalid())

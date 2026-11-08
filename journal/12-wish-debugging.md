@@ -111,9 +111,24 @@ pellets. `calm` is unsuitable for this test because it suppresses normal AI beha
 
 ## How Wish interacts with the mod
 
-Grateful Pets currently declares no custom `[WishCommand]` handlers in
-`mod/Scripts/`. Wish input therefore goes through Qud's normal wish system; the mod
-does not add commands such as `gratefulpets:feed` or `gratefulpets:reset`.
+Grateful Pets now declares two namespaced diagnostic commands in
+`mod/Scripts/DebugWishes.cs`:
+
+```text
+gratefulpets:status
+gratefulpets:advance:300
+```
+
+`gratefulpets:status` displays the player hook, current tick, nearby eligible pets,
+and each pet's digestion counters. `gratefulpets:advance:<turns>` deterministically
+simulates elapsed digestion time for nearby pets. It processes one delayed production
+for each complete `DIGESTION_INTERVAL` (currently 300 turns), runs the normal pellet
+creation and delivery path, and leaves the next scheduled production at the normal
+interval. It does not advance the world clock or other game systems.
+
+These commands do not replace the normal Feed/Care actions. They are specifically for
+observing and accelerating the timed event path. Commands such as
+`gratefulpets:feed` or `gratefulpets:reset` are not currently implemented.
 
 The interaction is indirect:
 
@@ -144,6 +159,6 @@ Important consequences:
   and `GratefulPetsLoadHandler`.
 - Pet eligibility: `GratefulPets.IsPet`, which checks `Pet`, `StartingPet`, and
   `Pettable`.
-- Wish-command search: no `[WishCommand]` or `[HasWishCommand]` declarations exist
-  under `mod/Scripts/`.
+- Wish-command search: `DebugWishes.cs` defines `[HasWishCommand]` plus the
+  `gratefulpets:status` and `gratefulpets:advance` diagnostics.
 - Feed, Care, digestion, and corpse handling: `mod/Scripts/GratefulPets.cs`.
