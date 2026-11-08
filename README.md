@@ -35,7 +35,13 @@ You’ll see, when the stars (and your inventory) align:
 
 1. **Options → Modding → Allow scripting mods** = on.  
    (e.g. `~/.config/unity3d/Freehold Games/CavesOfQud/Local/PlayerOptions.json` → `"OptionAllowCSMods": "Yes"`.)
-2. Copy `mod/` into your mods folder as `GratefulPets`:
+2. Install/update with the helper script (or copy manually):
+
+   ```bash
+   ./install.sh   # from this repo; uses QUD_MODS_DIR or the default Linux Mods path
+   ```
+
+   Manual copy equivalent — `mod/` → `Mods/GratefulPets/`:
 
    ```text
    ~/.config/unity3d/Freehold Games/CavesOfQud/Mods/GratefulPets/
