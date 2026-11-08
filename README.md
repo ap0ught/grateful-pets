@@ -72,7 +72,7 @@ If it misbehaves, the second oracle is `~/.config/unity3d/Freehold Games/CavesOf
 - If you ever loaded through an older/broken `GratefulPetsDigestion` serialization (we fixed this with a defensive, versioned `Read`), that pet’s *in-progress* digestion/corpse count resets safely — **feed the pet again** to re-arm it.
 - Timed sharing runs on the pet’s ticks; keep your companion nearby/player-led so it can waddle over and deliver the goods. (Cross-zone edge cases are less ceremonially verified.)
 
-Details: [`journal/11-how-it-works-and-in-progress-saves.md`](journal/11-how-it-works-and-in-progress-saves.md).
+Details: [`journal/11-how-it-works-and-in-progress-saves.md`](journal/11-how-it-works-and-in-progress-saves.md). For repeatable debug setup and Wish-console commands, see [`journal/12-wish-debugging.md`](journal/12-wish-debugging.md).
 
 ---
 

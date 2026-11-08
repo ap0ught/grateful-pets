@@ -35,6 +35,7 @@ journal entry says "see `XRL.World/GameObject.cs:6092`", that path is inside `de
 | 09 | [Gotchas & troubleshooting](09-gotchas-and-troubleshooting.md) | the async API break, silent `ReceiveObject`, Steam overwriting fixes |
 | 10 | [Pellet bug & feed redesign](10-pellet-bug-and-feed-redesign.md) | the “missing pellet” parable (Examiner/odd trinket) + root cause; feed redesign, chat-under-conversation, digestion (local produce → approach/share), Care/tonics, 50-slot lists, corpse milestone, fixes |
 | 11 | [How it works & in-progress saves](11-how-it-works-and-in-progress-saves.md) | plain-language end-to-end map of the current mod, and why it works on a save already in progress (with caveats) |
+| 12 | [Wish debugging](12-wish-debugging.md) | exact Wish commands, safe spawn/debug sequences, and how Wish interacts with Grateful Pets |
 
 ---
 
