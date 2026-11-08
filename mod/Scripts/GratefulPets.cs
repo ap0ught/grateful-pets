@@ -722,7 +722,19 @@ namespace XRL.World.Parts
 			}
 
 			// Find treasure on the body (pocket/stomach/inventory) and give it to you.
-			GiveCorpseLootToPlayer(Actor, Pet, CorpseObj);
+			int lootGiven = GiveCorpseLootToPlayer(Actor, Pet, CorpseObj);
+			// If no items on the corpse, pick from the treasure list and "pretend" it was found.
+			if (lootGiven <= 0)
+			{
+				GameObject pretend = GiveTreasure(Actor, Tired: false);
+				if (pretend != null)
+				{
+					if (IsRobotPet(Pet))
+						Msg("&g" + PetName(Pet) + " salvages the remains and produces " + pretend.t(int.MaxValue, null, null, AsIfKnown: false, Single: true) + ".");
+					else
+						Msg("&g" + PetName(Pet) + " finds " + pretend.t(int.MaxValue, null, null, AsIfKnown: false, Single: true) + " in the body and gives it to you.");
+				}
+			}
 
 			bool hasEffect = HasTasteForWholeBodies(Pet);
 			bool stored = false;
@@ -1221,13 +1233,14 @@ namespace XRL.World.Parts
 			return item != null && !item.IsInvalid() && item.HasPart<Corpse>();
 		}
 
-		public static void GiveCorpseLootToPlayer(GameObject Actor, GameObject Pet, GameObject CorpseObj)
+		/// <summary>Returns number of items given to the player from the corpse's inventory.</summary>
+		public static int GiveCorpseLootToPlayer(GameObject Actor, GameObject Pet, GameObject CorpseObj)
 		{
 			if (Actor == null || Actor.IsInvalid() || CorpseObj == null || CorpseObj.IsInvalid())
-				return;
+				return 0;
 			List<GameObject> inv = CorpseObj.GetInventory();
 			if (inv == null || inv.Count == 0)
-				return;
+				return 0;
 			// Copy list since we modify inventory
 			List<GameObject> items = new List<GameObject>(inv);
 			int given = 0;
@@ -1249,8 +1262,12 @@ namespace XRL.World.Parts
 			}
 			if (given > 0)
 			{
-				Msg("&g" + PetName(Pet) + " finds treasure in the body (pocket or stomach) and gives it to you.");
+				if (IsRobotPet(Pet))
+					Msg("&g" + PetName(Pet) + " butchers the corpse, keeps the good stuff, and hands back what it found.");
+				else
+					Msg("&g" + PetName(Pet) + " finds treasure in the body (pocket or stomach) and gives it to you.");
 			}
+			return given;
 		}
 
 	}
@@ -1651,16 +1668,24 @@ namespace XRL.World.Parts
 				Messaging.XDidYToZ(ParentObject, "chomp", "on", corpse);
 
 			// Find any remaining treasure in the body, then consume and deliver normal rewards.
-			GratefulPets.GiveCorpseLootToPlayer(Player, ParentObject, corpse);
+			int loot = GratefulPets.GiveCorpseLootToPlayer(Player, ParentObject, corpse);
 			corpse.RemoveIntProperty("GratefulPets.StoredCorpse");
 			corpse.RemoveFromContext();
 			if (!corpse.IsInvalid()) corpse.Destroy();
 
 			TotalCorpsesConsumed++;
-			// normal rewards like feeding
-			GameObject gift = GratefulPets.GiveTreasure(Player, Tired: false);
-			if (gift != null)
-				Messaging.XDidYToZ(ParentObject, "give", null, Player, gift.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
+			// normal rewards like feeding: real loot if found, else pretend-treasure from list
+			if (loot <= 0)
+			{
+				GameObject gift = GratefulPets.GiveTreasure(Player, Tired: false);
+				if (gift != null)
+				{
+					if (GratefulPets.IsRobotPet(ParentObject))
+						XRL.World.IComponent<GameObject>.AddPlayerMessage("&g" + (ParentObject.GetDisplayName(Single:true,NoColor:true,Short:true,BaseOnly:true) ?? "Your pet") + " salvages the remains and produces " + gift.t(int.MaxValue, null, null, AsIfKnown: false, Single: true) + ".");
+					else
+						Messaging.XDidYToZ(ParentObject, "give", null, Player, gift.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
+				}
+			}
 			BeginDigestion(GratefulPets.PELLETS_NOW, GratefulPets.PELLETS_DIGESTING, GratefulPets.CurrentTick());
 			GratefulPets.TryGiveRobotCellBonus(Player, ParentObject);
 			return true;
