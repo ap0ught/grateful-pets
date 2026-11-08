@@ -110,6 +110,8 @@ namespace XRL.World.Parts
 		//  - TreasureList: normal food-feeding (and corpse-milestone) gifts.
 		//  - DowngradedTreasureList: when the pet is tired of that food.
 		//  - HealingList: "Care" (feed a Tonic/syringe) reward for the player.
+		//  - RobotCellList: bonus for robotic pets — 20% extra on each
+		//    feeding/caring (added on top of the normal reward).
 		// ------------------------------------------------------------------
 
 		static readonly string[] TreasureList = new string[]
@@ -173,6 +175,19 @@ namespace XRL.World.Parts
 			"Metamorphic Polygel", "Metamorphic Polygel",
 			"Fixit Spray",
 			"Bandage", "SalveTonic", "UbernostrumTonic", "Convalessence Phial", "SphynxSaltTonic", "Bandage"
+		};
+
+		// Bonus list for robotic pets (energy cells), 20% chance on feed/care.
+		static readonly string[] RobotCellList = new string[]
+		{
+			"Chem Cell", "Chem Cell", "Chem Cell", "Chem Cell", "Chem Cell", "Chem Cell",
+			"Solar Cell", "Solar Cell", "Solar Cell", "Solar Cell",
+			"Lead-Acid Cell", "Lead-Acid Cell", "Lead-Acid Cell",
+			"Fidget Cell", "Fidget Cell",
+			"Combustion Cell", "Combustion Cell",
+			"Thermoelectric Cell",
+			"Biodynamic Cell",
+			"Nuclear Cell"
 		};
 
 		// ------------------------------------------------------------------
@@ -386,6 +401,7 @@ namespace XRL.World.Parts
 			{
 				Messaging.XDidYToZ(Pet, "give", null, Actor, heal.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
 			}
+			TryGiveRobotCellBonus(Actor, Pet);
 		}
 
 		public static List<GameObject> CollectCarriedTonics(GameObject Actor)
@@ -488,26 +504,47 @@ namespace XRL.World.Parts
 			int fedBefore = GetCount(counts, foodBlueprint);
 			bool tired = fedBefore >= TIRED_THRESHOLD;
 
+			bool robot = IsRobotPet(Pet);
+
 			// 1. Flavour.  Before Destroy(): Messaging drops messages for objects
 			//    it can't validate, and a stacked food's last removal invalidates it.
-			Messaging.XDidYToZ(Pet, "gobble", "up", FoodItem);
+			if (robot)
+			{
+				Messaging.XDidYToZ(Pet, "process", null, FoodItem);
+			}
+			else
+			{
+				Messaging.XDidYToZ(Pet, "gobble", "up", FoodItem);
+			}
 
 			// 2. The exclamation (love / getting tired / loathe).
 			if (tired)
 			{
-				Messaging.XDidY(Pet, "make", Extra: "a face at the " + foodLabel + ". &r\"Ugh, not this again!\"");
+				if (robot)
+					Messaging.XDidY(Pet, "emit", Extra: "a low buzz at the " + foodLabel + ". &r\"FUEL QUALITY: SUBOPTIMAL. AGAIN.\"");
+				else
+					Messaging.XDidY(Pet, "make", Extra: "a face at the " + foodLabel + ". &r\"Ugh, not this again!\"");
 			}
 			else if (fedBefore >= 3)
 			{
-				Messaging.XDidY(Pet, "accept", Extra: "the " + foodLabel + ", a bit wearily. &y\"This again?\"");
+				if (robot)
+					Messaging.XDidY(Pet, "cycle", Extra: "its intake over the " + foodLabel + ". &y\"INPUT RECOGNIZED. VARIETY ADVISED.\"");
+				else
+					Messaging.XDidY(Pet, "accept", Extra: "the " + foodLabel + ", a bit wearily. &y\"This again?\"");
 			}
 			else if (fedBefore == 0)
 			{
-				Messaging.XDidY(Pet, "perk", Extra: "up at the " + foodLabel + ". &G\"Ooh, something new!\"");
+				if (robot)
+					Messaging.XDidY(Pet, "whir", Extra: "approvingly at the " + foodLabel + ". &G\"NEW FUEL SOURCE DETECTED.\"");
+				else
+					Messaging.XDidY(Pet, "perk", Extra: "up at the " + foodLabel + ". &G\"Ooh, something new!\"");
 			}
 			else
 			{
-				Messaging.XDidY(Pet, "wag", Extra: "happily over the " + foodLabel + ". &g\"My favorite!\"");
+				if (robot)
+					Messaging.XDidY(Pet, "chime", Extra: "contentedly over the " + foodLabel + ". &g\"EFFICIENT INPUT. SATISFACTION NOMINAL.\"");
+				else
+					Messaging.XDidY(Pet, "wag", Extra: "happily over the " + foodLabel + ". &g\"My favorite!\"");
 			}
 
 			// 3. Consume one.  Stacker cancels Destroy() on stacks and decrements
@@ -526,6 +563,7 @@ namespace XRL.World.Parts
 			{
 				Messaging.XDidYToZ(Pet, "give", null, Actor, gift.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
 			}
+			TryGiveRobotCellBonus(Actor, Pet);
 
 			// 6. Pellets: produce 1 locally now and share it, then the rest over
 			//    the course of the day while digesting (produced locally, pet
@@ -912,6 +950,34 @@ namespace XRL.World.Parts
 				return true;
 			}
 			return obj.HasPart<Pettable>();
+		}
+
+		/// <summary>True for robotic pets (Robot part/tag) — gets robot-flavored handling and a chance at cell bonuses.</summary>
+		public static bool IsRobotPet(GameObject obj)
+		{
+			if (obj == null || obj.IsInvalid())
+			{
+				return false;
+			}
+			return obj.HasPart("Robot") || obj.HasTag("Robot");
+		}
+
+		static void TryGiveRobotCellBonus(GameObject Actor, GameObject Pet)
+		{
+			if (!IsRobotPet(Pet) || Actor == null || Actor.IsInvalid())
+			{
+				return;
+			}
+			if (Stat.Random(1, 100) > 20)
+			{
+				return;
+			}
+			string blueprint = RollFrom(RobotCellList);
+			GameObject cell = (blueprint != null) ? GameObject.Create(blueprint) : null;
+			if (cell != null && Actor.ReceiveObject(cell))
+			{
+				Messaging.XDidYToZ(Pet, "dispense", null, Actor, cell.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
+			}
 		}
 
 	}
