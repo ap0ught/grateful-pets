@@ -1311,7 +1311,7 @@ namespace XRL.World.Parts
 			try
 			{
 				byte version = Reader.ReadByte();
-				if (version >= 1)
+				if (version >= 1 && version <= 3)
 				{
 					RemainingToProduce = Reader.ReadInt32();
 					NextProductionTick = Reader.ReadInt64();
@@ -1340,15 +1340,14 @@ namespace XRL.World.Parts
 			}
 			catch
 			{
+				// Incompatible/foreign format (e.g. reflection-written old data) or
+				// stream desync: rethrow so IPart.Load skips this part's block safely
+				// (loses digestion state but keeps the save loading) rather than
+				// corrupting the reader.
+				throw;
 			}
-			// Old/incompatible payload: reset safely so the save keeps loading.
-			RemainingToProduce = 0;
-			NextProductionTick = 0;
-			HeldForDelivery = 0;
-			CorpseCount = 0;
-			TotalCorpsesConsumed = 0;
-			TasteForWholeBodiesAnnounced = false;
-			LastMunchiesTick = 0;
+			// Unrecognized version: throw to skip the block safely.
+			throw new Exception("GratefulPetsDigestion: unrecognized save format");
 		}
 
 		public override bool AllowStaticRegistration()
