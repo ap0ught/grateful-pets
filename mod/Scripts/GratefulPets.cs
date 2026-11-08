@@ -200,7 +200,7 @@ namespace XRL.World.Parts
 			{
 				return true;
 			}
-			return ID == OwnerGetInventoryActionsEvent.ID || ID == InventoryActionEvent.ID || ID == BeginConversationEvent.ID;
+			return ID == OwnerGetInventoryActionsEvent.ID || ID == InventoryActionEvent.ID || ID == BeginConversationEvent.ID || ID == XRL.World.EndTurnEvent.ID;
 		}
 
 		/// <summary>Fires on the player for every object being twiddled; E.Object is it.</summary>
@@ -208,7 +208,7 @@ namespace XRL.World.Parts
 		{
 			if (E.Object != null && !E.Object.IsInvalid())
 			{
-				if (E.Object.HasPart<Food>() && !E.Object.IsImportant() && E.Object.InInventory == The.Player)
+				if (IsFeedableItem(E.Object) && E.Object.InInventory == The.Player)
 				{
 					E.AddAction(
 						Name: "Feed to pet",
@@ -275,6 +275,12 @@ namespace XRL.World.Parts
 					InjectCareChoice(E.StartNode, E.SpeakingWith);
 				}
 			}
+			return base.HandleEvent(E);
+		}
+
+		public override bool HandleEvent(XRL.World.EndTurnEvent E)
+		{
+			TryMunchiesAtCampfire();
 			return base.HandleEvent(E);
 		}
 
@@ -535,7 +541,7 @@ namespace XRL.World.Parts
 			{
 				return;
 			}
-			if (!FoodItem.HasPart<Food>() || FoodItem.IsImportant() || FoodItem.InInventory != Actor)
+			if (!IsFeedableItem(FoodItem) || FoodItem.InInventory != Actor)
 			{
 				Msg("&YYou can't feed that to a pet.");
 				return;
@@ -588,6 +594,13 @@ namespace XRL.World.Parts
 			if (FoodItem.InInventory != Actor)
 			{
 				Msg("&YYou no longer have that.");
+				return;
+			}
+
+			GratefulPetsDigestion digestion = Pet.RequirePart<GratefulPetsDigestion>();
+			if (IsCorpseItem(FoodItem))
+			{
+				FeedCorpse(Actor, Pet, FoodItem, digestion, fromActorInventory: true, costEnergy: true);
 				return;
 			}
 
@@ -663,20 +676,99 @@ namespace XRL.World.Parts
 			// 6. Pellets: produce 1 locally now and share it, then the rest over
 			//    the course of the day while digesting (produced locally, pet
 			//    approaches to share each when ready).
-			GratefulPetsDigestion digestion = Pet.RequirePart<GratefulPetsDigestion>();
 			digestion.BeginDigestion(PELLETS_NOW, PELLETS_DIGESTING, CurrentTick());
 
 			// 7. It costs a turn.
 			Actor.UseEnergy(FEED_ENERGY_COST, "Feed Pet");
 		}
 
+		public static int CountStoredCorpses(GameObject Pet)
+		{
+			int n = 0;
+			List<GameObject> inv = Pet?.GetInventory();
+			if (inv == null) return 0;
+			for (int i = 0; i < inv.Count; i++)
+			{
+				GameObject it = inv[i];
+				if (it != null && !it.IsInvalid() && it.HasPart<Corpse>() && it.GetIntProperty("GratefulPets.StoredCorpse") > 0)
+					n++;
+			}
+			return n;
+		}
+
+		static void FeedCorpse(GameObject Actor, GameObject Pet, GameObject CorpseObj, GratefulPetsDigestion digestion, bool fromActorInventory, bool costEnergy)
+		{
+			if (CorpseObj == null || CorpseObj.IsInvalid()) return;
+			bool robot = IsRobotPet(Pet);
+			string corpseLabel = CorpseObj.GetDisplayName(Single: true, NoColor: true) ?? "corpse";
+
+			if (robot)
+				Messaging.XDidYToZ(Pet, "disassemble", null, CorpseObj);
+			else
+				Messaging.XDidYToZ(Pet, "tear", "into", CorpseObj);
+
+			// Unlock "taste for whole bodies" effect after > 20 corpses consumed.
+			digestion.TotalCorpsesConsumed++;
+			if (digestion.TotalCorpsesConsumed > GratefulPetsDigestion.WHOLE_BODIES_THRESHOLD && !digestion.TasteForWholeBodiesAnnounced)
+			{
+				digestion.TasteForWholeBodiesAnnounced = true;
+				if (!HasTasteForWholeBodies(Pet))
+					Pet.ApplyEffect(new XRL.World.Effects.GratefulPetsTasteForWholeBodies());
+				Messaging.XDidY(Pet, "exclaim", Extra: "&r\"Now I have a taste for whole bodies!\"");
+			}
+			else if (digestion.TotalCorpsesConsumed > GratefulPetsDigestion.WHOLE_BODIES_THRESHOLD && !HasTasteForWholeBodies(Pet))
+			{
+				Pet.ApplyEffect(new XRL.World.Effects.GratefulPetsTasteForWholeBodies());
+			}
+
+			// Find treasure on the body (pocket/stomach/inventory) and give it to you.
+			GiveCorpseLootToPlayer(Actor, Pet, CorpseObj);
+
+			bool hasEffect = HasTasteForWholeBodies(Pet);
+			bool stored = false;
+			if (hasEffect && fromActorInventory && CountStoredCorpses(Pet) < GratefulPetsDigestion.WHOLE_BODIES_CARRY_MAX)
+			{
+				// Keep the (looted) corpse on the pet for later munchies (up to 5).
+				CorpseObj.RemoveFromContext();
+				CorpseObj.SetIntProperty("GratefulPets.StoredCorpse", 1);
+				if (Pet.ReceiveObject(CorpseObj))
+				{
+					stored = true;
+				}
+				else
+				{
+					CorpseObj.RemoveIntProperty("GratefulPets.StoredCorpse");
+					// fall through to consume
+				}
+			}
+
+			if (!stored)
+			{
+				if (!CorpseObj.IsInvalid()) CorpseObj.Destroy();
+			}
+
+			// Deliver rewards like normal (pellets/digestion) + robot cell bonus.
+			digestion.BeginDigestion(PELLETS_NOW, PELLETS_DIGESTING, CurrentTick());
+			TryGiveRobotCellBonus(Actor, Pet);
+
+			if (costEnergy && Actor != null && !Actor.IsInvalid())
+				Actor.UseEnergy(FEED_ENERGY_COST, "Feed Pet");
+		}
+
 		// ------------------------------------------------------------------
 		//  Food & pet discovery
 		// ------------------------------------------------------------------
 
+		static bool IsFeedableItem(GameObject item)
+		{
+			if (item == null || item.IsInvalid() || item.IsImportant())
+				return false;
+			return item.HasPart<Food>() || item.HasPart<Corpse>();
+		}
+
 		/// <summary>
-		/// One representative GameObject per feedable food blueprint in inventory
-		/// (non-important, has a Food part).  Used as the picker list.
+		/// One representative GameObject per feedable item blueprint in inventory
+		/// (food or corpse). Used as the picker list.
 		/// </summary>
 		static List<GameObject> CollectFeedableFoods(GameObject Actor)
 		{
@@ -691,13 +783,9 @@ namespace XRL.World.Parts
 			{
 				GameObject item = inventory[i];
 				if (item == null || item.IsInvalid())
-				{
 					continue;
-				}
-				if (!item.HasPart<Food>() || item.IsImportant())
-				{
+				if (!IsFeedableItem(item))
 					continue;
-				}
 				if (seen.Add(item.Blueprint))
 				{
 					result.Add(item);
@@ -871,6 +959,46 @@ namespace XRL.World.Parts
 			catch
 			{
 				return 0;
+			}
+		}
+
+		static void TryMunchiesAtCampfire()
+		{
+			GameObject player = The.Player;
+			if (player == null || player.IsInvalid()) return;
+			Cell pcell = player.CurrentCell;
+			if (pcell == null) return;
+			bool nearCampfire = false;
+			foreach (Cell c in pcell.GetAdjacentCells(1, LocalOnly: true, BuiltOnly: false))
+			{
+				if (c == null) continue;
+				foreach (GameObject o in c.GetObjects())
+				{
+					if (o != null && !o.IsInvalid() && o.HasPart<Campfire>())
+					{
+						nearCampfire = true;
+						break;
+					}
+				}
+				if (nearCampfire) break;
+			}
+			if (!nearCampfire) return;
+
+			long now = CurrentTick();
+			foreach (Cell c in pcell.GetAdjacentCells(4, LocalOnly: true, BuiltOnly: false))
+			{
+				if (c == null) continue;
+				foreach (GameObject o in c.GetObjects())
+				{
+					if (o == null || o.IsInvalid() || !IsPet(o)) continue;
+					if (!HasTasteForWholeBodies(o)) continue;
+					if (!o.IsPlayerLed()) continue;
+					GratefulPetsDigestion d = o.GetPart<GratefulPetsDigestion>();
+					if (d == null) continue;
+					if (now - d.LastMunchiesTick < 30) continue; // debounce
+					if (d.TryMunchies(player))
+						return;
+				}
 			}
 		}
 
@@ -1065,7 +1193,7 @@ namespace XRL.World.Parts
 			return obj.HasPart("Robot") || obj.HasTag("Robot");
 		}
 
-		static void TryGiveRobotCellBonus(GameObject Actor, GameObject Pet)
+		public static void TryGiveRobotCellBonus(GameObject Actor, GameObject Pet)
 		{
 			if (!IsRobotPet(Pet) || Actor == null || Actor.IsInvalid())
 			{
@@ -1083,6 +1211,48 @@ namespace XRL.World.Parts
 			}
 		}
 
+		public static bool HasTasteForWholeBodies(GameObject Pet)
+		{
+			return Pet != null && !Pet.IsInvalid() && Pet.HasEffect<XRL.World.Effects.GratefulPetsTasteForWholeBodies>();
+		}
+
+		static bool IsCorpseItem(GameObject item)
+		{
+			return item != null && !item.IsInvalid() && item.HasPart<Corpse>();
+		}
+
+		public static void GiveCorpseLootToPlayer(GameObject Actor, GameObject Pet, GameObject CorpseObj)
+		{
+			if (Actor == null || Actor.IsInvalid() || CorpseObj == null || CorpseObj.IsInvalid())
+				return;
+			List<GameObject> inv = CorpseObj.GetInventory();
+			if (inv == null || inv.Count == 0)
+				return;
+			// Copy list since we modify inventory
+			List<GameObject> items = new List<GameObject>(inv);
+			int given = 0;
+			for (int i = 0; i < items.Count; i++)
+			{
+				GameObject it = items[i];
+				if (it == null || it.IsInvalid()) continue;
+				it.RemoveFromContext();
+				if (Actor.ReceiveObject(it))
+				{
+					given++;
+					if (given <= 3) // avoid message spam
+						Messaging.XDidYToZ(Pet, "give", null, Actor, it.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
+				}
+				else
+				{
+					CorpseObj.ReceiveObject(it);
+				}
+			}
+			if (given > 0)
+			{
+				Msg("&g" + PetName(Pet) + " finds treasure in the body (pocket or stomach) and gives it to you.");
+			}
+		}
+
 	}
 
 	/// <summary>
@@ -1097,18 +1267,26 @@ namespace XRL.World.Parts
 		public long NextProductionTick;
 		public int HeldForDelivery;
 		public int CorpseCount;
+		public int TotalCorpsesConsumed; // lifetime: fed/eaten corpses (for taste-for-whole-bodies unlock)
+		public bool TasteForWholeBodiesAnnounced;
+		public long LastMunchiesTick;
 
 		public const int CORPSE_MILESTONE = 5;
 		public const int CORPSE_TREASURES = 2;
 		public const int CORPSE_PELLETS = 5;
+		public const int WHOLE_BODIES_THRESHOLD = 20; // "over 20" => 21st triggers unlock/exclaim
+		public const int WHOLE_BODIES_CARRY_MAX = 5;
 
 		public override void Write(GameObject Basis, SerializationWriter Writer)
 		{
-			Writer.Write((byte)1); // version
+			Writer.Write((byte)3); // version
 			Writer.Write(RemainingToProduce);
 			Writer.Write(NextProductionTick);
 			Writer.Write(HeldForDelivery);
 			Writer.Write(CorpseCount);
+			Writer.Write(TotalCorpsesConsumed);
+			Writer.Write(TasteForWholeBodiesAnnounced);
+			Writer.Write(LastMunchiesTick);
 		}
 
 		public override void Read(GameObject Basis, SerializationReader Reader)
@@ -1122,6 +1300,24 @@ namespace XRL.World.Parts
 					NextProductionTick = Reader.ReadInt64();
 					HeldForDelivery = Reader.ReadInt32();
 					CorpseCount = Reader.ReadInt32();
+					if (version >= 2)
+					{
+						TotalCorpsesConsumed = Reader.ReadInt32();
+						TasteForWholeBodiesAnnounced = Reader.ReadBoolean();
+					}
+					else
+					{
+						TotalCorpsesConsumed = 0;
+						TasteForWholeBodiesAnnounced = false;
+					}
+					if (version >= 3)
+					{
+						LastMunchiesTick = Reader.ReadInt64();
+					}
+					else
+					{
+						LastMunchiesTick = 0;
+					}
 					return;
 				}
 			}
@@ -1133,6 +1329,9 @@ namespace XRL.World.Parts
 			NextProductionTick = 0;
 			HeldForDelivery = 0;
 			CorpseCount = 0;
+			TotalCorpsesConsumed = 0;
+			TasteForWholeBodiesAnnounced = false;
+			LastMunchiesTick = 0;
 		}
 
 		public override bool AllowStaticRegistration()
@@ -1239,6 +1438,7 @@ namespace XRL.World.Parts
 			{
 				NextProductionTick = 0;
 			}
+			TryGatherCorpse();
 			TryDeliverOrApproach();
 		}
 
@@ -1429,6 +1629,118 @@ namespace XRL.World.Parts
 				}
 			}
 			return n;
+		}
+		public bool TryMunchies(GameObject Player)
+		{
+			if (ParentObject == null || ParentObject.IsInvalid() || Player == null || Player.IsInvalid())
+				return false;
+			if (!GratefulPets.HasTasteForWholeBodies(ParentObject))
+				return false;
+			GameObject corpse = FindStoredCorpse();
+			if (corpse == null)
+				return false;
+			if (ParentObject.DistanceTo(Player) > 8)
+				return false;
+
+			LastMunchiesTick = GratefulPets.CurrentTick();
+			Messaging.XDidY(ParentObject, "proclaim", Extra: "&y\"It is time for its munchies.\"");
+			bool robot = GratefulPets.IsRobotPet(ParentObject);
+			if (robot)
+				Messaging.XDidYToZ(ParentObject, "incinerate", null, corpse);
+			else
+				Messaging.XDidYToZ(ParentObject, "chomp", "on", corpse);
+
+			// Find any remaining treasure in the body, then consume and deliver normal rewards.
+			GratefulPets.GiveCorpseLootToPlayer(Player, ParentObject, corpse);
+			corpse.RemoveIntProperty("GratefulPets.StoredCorpse");
+			corpse.RemoveFromContext();
+			if (!corpse.IsInvalid()) corpse.Destroy();
+
+			TotalCorpsesConsumed++;
+			// normal rewards like feeding
+			GameObject gift = GratefulPets.GiveTreasure(Player, Tired: false);
+			if (gift != null)
+				Messaging.XDidYToZ(ParentObject, "give", null, Player, gift.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
+			BeginDigestion(GratefulPets.PELLETS_NOW, GratefulPets.PELLETS_DIGESTING, GratefulPets.CurrentTick());
+			GratefulPets.TryGiveRobotCellBonus(Player, ParentObject);
+			return true;
+		}
+
+		GameObject FindStoredCorpse()
+		{
+			List<GameObject> inv = ParentObject?.GetInventory();
+			if (inv == null) return null;
+			for (int i = 0; i < inv.Count; i++)
+			{
+				GameObject it = inv[i];
+				if (it != null && !it.IsInvalid() && it.HasPart<Corpse>() && it.GetIntProperty("GratefulPets.StoredCorpse") > 0)
+					return it;
+			}
+			return null;
+		}
+
+		void TryGatherCorpse()
+		{
+			if (ParentObject == null || ParentObject.IsInvalid()) return;
+			if (!GratefulPets.HasTasteForWholeBodies(ParentObject)) return;
+			if (GratefulPets.CountStoredCorpses(ParentObject) >= WHOLE_BODIES_CARRY_MAX) return;
+			Cell cell = ParentObject.CurrentCell;
+			if (cell == null) return;
+			// Opportunistic: grab a corpse in current or adjacent cell.
+			foreach (Cell c in cell.GetAdjacentCells(1, LocalOnly: true, BuiltOnly: false))
+			{
+				if (c == null) continue;
+				List<GameObject> objs = c.GetObjects();
+				for (int i = 0; i < objs.Count; i++)
+				{
+					GameObject o = objs[i];
+					if (o == null || o.IsInvalid()) continue;
+					if (!o.HasPart<Corpse>()) continue;
+					if (o.InInventory != null) continue;
+					// Take it
+					o.RemoveFromContext();
+					o.SetIntProperty("GratefulPets.StoredCorpse", 1);
+					if (ParentObject.ReceiveObject(o))
+					{
+						GratefulPets.Msg("&g" + (ParentObject.GetDisplayName(Single:true,NoColor:true,Short:true,BaseOnly:true) ?? "Your pet") + " gathers a corpse for later.");
+						return;
+					}
+					else
+					{
+						o.RemoveIntProperty("GratefulPets.StoredCorpse");
+						c.AddObject(o);
+					}
+				}
+			}
+		}
+
+	}
+}
+
+namespace XRL.World.Effects
+{
+	[Serializable]
+	public class GratefulPetsTasteForWholeBodies : XRL.World.Effect
+	{
+		public GratefulPetsTasteForWholeBodies()
+		{
+			DisplayName = "{{r|taste for whole bodies}}";
+			Duration = XRL.World.Effect.DURATION_INDEFINITE;
+		}
+
+		public override string GetDetails()
+		{
+			return "Craves whole corpses. Gathers them (up to 5) and gets the munchies at a campfire.";
+		}
+
+		public override bool UseStandardDurationCountdown()
+		{
+			return false;
+		}
+
+		public override bool SameAs(XRL.World.Effect e)
+		{
+			return e is GratefulPetsTasteForWholeBodies;
 		}
 	}
 }
