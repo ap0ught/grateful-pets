@@ -1,8 +1,8 @@
 {
   "id": "GratefulPets",
   "title": "Grateful Pets",
-  "description": "Feed a pet and it will thank you. Every feed costs one food item and always returns 5 desalination pellets, plus one random gift from a table of nuggets, gemstones, figurines and jewellery. Works on any creature with the Pet or StartingPet tag, or the Pettable part - base game and Pets of Harvest Dawn DLC alike.",
-  "version": "1.1.0",
+  "description": "Feed and care for your pets and they will thank you. Chat with a real pet to feed it (food, taste/tiredness, treasure + 1 now/4-over-time desalination pellets produced locally and shared) or care for it (tonics/syringes applied to the pet for a healing treasure). Robotic pets get robot-flavored reactions, a 20% bonus energy-cell roll on feed/care, and robot care: give a spent energy cell and it runs a software update to return a fresh cell (biological tonics often fail on robots). Corpse-milestone rewards, pellet-to-container use. Works on saves in progress.",
+  "version": "1.2.0",
   "author": "Christopher Mayfield",
   "tags": "Pets,Items",
   "loadorder": 100

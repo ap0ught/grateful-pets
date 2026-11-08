@@ -18,8 +18,10 @@ You’ll see, when the stars (and your inventory) align:
   - Costs **1 food** + **1 turn**. (Feeding from a stack eats one, not the whole tragic hoard — `Stacker` is merciful.)
   - **Treasure now:** 1 random pull from a **50-slot treasure list** (nuggets, rough/polished gems, figurines, and curios like `Chiral Rings` or a `Portable Beehive`). Feed the same food too often and your pet grows *weary* of it — the treasure **downgrades** (tiredness decays **−1 per in-game day**, tracked **per pet, per food**, shown as `[n]` in the picker).
   - **Desalination pellets:** **1 now** + **4 more over the course of the day** (every **300 turns**) as the pet digests. Each is **produced locally** and the pet **approaches to share** it (a grateful shuffle, not an interdimensional wire transfer). *Pellets are never downgraded.* (Unidentified pellets may masquerade as an **“odd trinket”** until identified — the handoff message still fires; Qud loves a humble disguise.)
-- **`Let me care for you.`** *(only if you’re carrying a `Tonic`/syringe)* — pick a tonic.
-  - Applies the tonic’s **real effect to the pet** (the genuine `ApplyExternally`/tonic path) and gives you **1 healing treasure** from a **50-slot healing list** (bandages, salves, ubernostrum, convalessence, and other medicinal kindnesses). **No tiredness.** Care, unlike cuisine, does not pall.
+- **`Let me care for you.`** *(only if you’re carrying something suitable)* — pick a care item.
+  - **Organic pets:** applies a **tonic/syringe**’s real effect to the pet (`ApplyExternally`) and gives you **1 healing treasure** from a **50-slot healing list** (bandages, salves, ubernostrum, convalessence, and other medicinal kindnesses).
+  - **Robotic pets:** biological tonics often fail on chrome, so Care takes **robot-care items** — e.g. give a **spent energy cell** and the robot *runs a software update* on it, returning a **fresh cell** — plus a healing treasure. **No tiredness.** Care, unlike cuisine, does not pall.
+  - **Robotic pets also** get robot-flavored feeding reactions and a **20% bonus energy-cell** roll (added on top) on each feed/care.
 
 **Butcher’s bonus:** every **5 corpses the pet butchers** (pet is the actor) → **2 treasures + 5 pellets**, produced and shared. A companion that helps with the grisly work is a companion that tips.
 

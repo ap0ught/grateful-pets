@@ -272,7 +272,7 @@ namespace XRL.World.Parts
 				if (E.StartNode != null)
 				{
 					InjectFeedChoice(E.StartNode);
-					InjectCareChoice(E.StartNode);
+					InjectCareChoice(E.StartNode, E.SpeakingWith);
 				}
 			}
 			return base.HandleEvent(E);
@@ -346,7 +346,9 @@ namespace XRL.World.Parts
 			Feed(Actor, Pet, chosen);
 		}
 
-		/// <summary>Pick a tonic/syringe, apply its benefit to the pet, then give a healing treasure. (Chat "Care" choice.)</summary>
+		/// <summary>Care for a pet. Organic pets: apply a tonic/syringe and get a healing treasure.
+		/// Robotic pets: biological tonics fail, so offer robot-care items (e.g. spent energy cells the
+		/// robot can "update" into a fresh cell) plus a healing treasure.</summary>
 		public static void DoCareForPet(GameObject Actor, GameObject Pet)
 		{
 			Actor = ResolveActor(Actor);
@@ -357,6 +359,12 @@ namespace XRL.World.Parts
 			if (Pet.DistanceTo(Actor) > FEED_RANGE)
 			{
 				Msg("&YYou are too far away to care for " + PetName(Pet) + ".");
+				return;
+			}
+
+			if (IsRobotPet(Pet))
+			{
+				DoCareForRobot(Actor, Pet);
 				return;
 			}
 
@@ -404,6 +412,62 @@ namespace XRL.World.Parts
 			TryGiveRobotCellBonus(Actor, Pet);
 		}
 
+		static void DoCareForRobot(GameObject Actor, GameObject Pet)
+		{
+			List<GameObject> choices = CollectRobotCareItems(Actor);
+			if (choices.Count == 0)
+			{
+				Msg("&YYou have nothing suitable to care for " + PetName(Pet) + " (try a spent energy cell).");
+				return;
+			}
+
+			GameObject chosen = Popup.PickGameObject(
+				"Give " + PetName(Pet) + " what for maintenance?",
+				choices,
+				AllowEscape: true,
+				ShowContext: false,
+				UseYourself: false
+			);
+			if (chosen == null)
+			{
+				return;
+			}
+			if (chosen.IsInvalid() || chosen.InInventory != Actor)
+			{
+				Msg("&YYou no longer have that.");
+				return;
+			}
+
+			// Spent energy cell: robot runs a "software update" and returns a fresh cell.
+			if (IsSpentEnergyCell(chosen))
+			{
+				string spentLabel = chosen.GetDisplayName(Single: true, NoColor: true) ?? chosen.Blueprint;
+				chosen.Destroy(); // consume 1 (stack-safe)
+				Messaging.XDidY(Pet, "run", Extra: "a software update on the " + spentLabel + ". &g\"FIRMWARE REFRESHED. POWER ROUTING OPTIMIZED.\"");
+				string freshBlueprint = RollFrom(RobotCellList);
+				GameObject fresh = (freshBlueprint != null) ? GameObject.Create(freshBlueprint) : null;
+				if (fresh != null && Actor.ReceiveObject(fresh))
+				{
+					Messaging.XDidYToZ(Pet, "return", null, Actor, fresh.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
+				}
+			}
+			else
+			{
+				Msg("&Y" + PetName(Pet) + " can't use that for maintenance.");
+				return;
+			}
+
+			Actor.UseEnergy(FEED_ENERGY_COST, "Item ApplyTo");
+
+			string blueprint = RollHealingBlueprint();
+			GameObject heal = (blueprint != null) ? GameObject.Create(blueprint) : null;
+			if (heal != null && Actor.ReceiveObject(heal))
+			{
+				Messaging.XDidYToZ(Pet, "give", null, Actor, heal.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
+			}
+			TryGiveRobotCellBonus(Actor, Pet);
+		}
+
 		public static List<GameObject> CollectCarriedTonics(GameObject Actor)
 		{
 			List<GameObject> result = new List<GameObject>();
@@ -425,6 +489,37 @@ namespace XRL.World.Parts
 					continue;
 				}
 				if (seen.Add(item.Blueprint))
+				{
+					result.Add(item);
+				}
+			}
+			return result;
+		}
+
+		static bool IsSpentEnergyCell(GameObject item)
+		{
+			if (item == null || item.IsInvalid())
+				return false;
+			EnergyCell cell = item.GetPart<EnergyCell>();
+			if (cell == null)
+				return false;
+			return cell.Charge <= 0;
+		}
+
+		public static List<GameObject> CollectRobotCareItems(GameObject Actor)
+		{
+			List<GameObject> result = new List<GameObject>();
+			HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			List<GameObject> inventory = Actor?.GetInventory();
+			if (inventory == null)
+				return result;
+			for (int i = 0; i < inventory.Count; i++)
+			{
+				GameObject item = inventory[i];
+				if (item == null || item.IsInvalid() || item.IsImportant())
+					continue;
+				// Spent energy cells: robot "updates" them and returns a fresh cell.
+				if (IsSpentEnergyCell(item) && seen.Add(item.Blueprint))
 				{
 					result.Add(item);
 				}
@@ -822,16 +917,24 @@ namespace XRL.World.Parts
 			StartNode.Elements.Add(choice);
 		}
 
-		static void InjectCareChoice(Node StartNode)
+		static void InjectCareChoice(Node StartNode, GameObject Pet)
 		{
 			if (StartNode == null)
 			{
 				return;
 			}
-			// No tonics carried => no care option.
-			if (CollectCarriedTonics(The.Player).Count == 0)
+			// Show Care if there's anything to care with (tonics for organics, robot-care items for robots).
+			GameObject speaker = Pet ?? The.Speaker;
+			bool robot = IsRobotPet(speaker);
+			if (robot)
 			{
-				return;
+				if (CollectRobotCareItems(The.Player).Count == 0)
+					return;
+			}
+			else
+			{
+				if (CollectCarriedTonics(The.Player).Count == 0)
+					return;
 			}
 			if (StartNode.Elements != null)
 			{
