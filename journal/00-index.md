@@ -33,7 +33,8 @@ journal entry says "see `XRL.World/GameObject.cs:6092`", that path is inside `de
 | 07 | [grateful-pets design](07-grateful-pets-design.md) | the mod: feed verb, gift table with weights, verified blueprint values |
 | 08 | [API cheatsheet](08-api-cheatsheet.md) | signatures I confirmed, so I don't have to re-decompile them |
 | 09 | [Gotchas & troubleshooting](09-gotchas-and-troubleshooting.md) | the async API break, silent `ReceiveObject`, Steam overwriting fixes |
-| 10 | [Pellet bug & feed redesign](10-pellet-bug-and-feed-redesign.md) | why "hands you 5 pellets" isn't the same as *having* them; the per-pet taste/food-picker redesign |
+| 10 | [Pellet bug & feed redesign](10-pellet-bug-and-feed-redesign.md) | the “missing pellet” parable (Examiner/odd trinket) + root cause; feed redesign, chat-under-conversation, digestion (local produce → approach/share), Care/tonics, 50-slot lists, corpse milestone, fixes |
+| 11 | [How it works & in-progress saves](11-how-it-works-and-in-progress-saves.md) | plain-language end-to-end map of the current mod, and why it works on a save already in progress (with caveats) |
 
 ---
 
@@ -53,11 +54,18 @@ journal entry says "see `XRL.World/GameObject.cs:6092`", that path is inside `de
    See [entry 05](05-pets-and-companions.md).
 5. **Designed grateful-pets** — feed costs 1 food item, always yields 5 desalination pellets plus
    1 weighted random gift. See [entry 07](07-grateful-pets-design.md).
-6. **Chased the missing-pellets bug** — the message fires and `ReceiveObject` reports success,
-   `AddObject`'s three silent-failure guards are excluded by `Player.log`, and both gift and
-   pellet paths converge on an identical `TakeObject(GameObject, …)`; the only difference is
-   `Stacker.StackCount = 5` set before the take. Switched from reading to instrumenting, and
-   specified the feed redesign on top of it. See [entry 10](10-pellet-bug-and-feed-redesign.md).
+6. **Chased the missing-pellets bug** — resolved as **identification, not loss**: `Desalination Pellet`
+   has `Examiner`/`UnknownOddTrinket` (“odd trinket”) until identified, while the grant/message were
+   real. Delivery was also hardened (no silent `ReceiveObject` loss; adjacent handoff not gated on
+   `IsPlayerLed`). See [entry 10](10-pellet-bug-and-feed-redesign.md).
+7. **Feed redesign shipped** — chat-injected **Feed** (food, taste `[n]`, tired→treasure downgrade,
+   pellets never downgraded) + **Care** (tonics applied to the pet → healing treasure; hidden if no
+   tonics; no tiredness); 50-slot treasure/downgraded/healing lists (verified base blueprints).
+8. **Digestion reworked** — 1 pellet now + 4 over the day (300t) **produced locally** on the pet and
+   **shared** on approach/adjacency (`GratefulPetsDigestion`, `TurnTick`, `MoveTo` nudge like
+   `GiveATreatToPartyLeader`). Corpse milestone (pet-actor `ObjectExtracted` butcher, every 5 → 2
+   treasures + 5 pellets). Defensive, versioned deserialization for in-progress saves.
+9. **End-to-end map written** — see [entry 11](11-how-it-works-and-in-progress-saves.md).
 
 ## Status
 
@@ -67,10 +75,11 @@ journal entry says "see `XRL.World/GameObject.cs:6092`", that path is inside `de
 - [x] **Install + verify both mods compile in-game** — *done 2026-11-07, first try, no iteration needed*
 - [x] Legacy Items forked to a repo under `ap0ught` for maintenance
 - [x] **Both repos published** — `ap0ught/grateful-pets` and `ap0ught/legacy-items` (public)
-- [ ] **Pellets don't actually arrive** — diagnosed as far as static reading allows, see
-      [entry 10](10-pellet-bug-and-feed-redesign.md); fix = rebuild with instrumentation
-- [ ] **Feed redesign** — food picker, per-pet taste tally, tiring, inventory-side feeding;
-      spec and decisions recorded in [entry 10](10-pellet-bug-and-feed-redesign.md)
+- [x] **“Pellets don’t arrive” resolved** — root cause was `Examiner`/“odd trinket” identification; delivery hardened (checked `ReceiveObject`, adjacent delivery independent of `IsPlayerLed`) ([entry 10](10-pellet-bug-and-feed-redesign.md))
+- [x] **Feed/Care redesign implemented** — chat choices (Feed/Care), taste+tired (food only), 50-slot lists, tonic→pet apply + healing treasure; compiles (`GRATEFUL PETS` / `Success :)`, 2026-11-08)
+- [x] **Works on saves already in progress** — `[CallAfterGameLoaded]` injects the player part; defensive `GratefulPetsDigestion` `Read` protects old/incompatible payloads ([entry 11](11-how-it-works-and-in-progress-saves.md))
+- [x] **README rewritten + `AGENT.md` added** (repo/how-to + in-game-flavored guide)
+- [ ] **Runtime edges, manual verify:** digestion-over-time (natural 300t waits across zones/led states), corpse-milestone trigger in all “pet butchers” cases, and any message-spam/approach quirks
 
 ## Verification result
 

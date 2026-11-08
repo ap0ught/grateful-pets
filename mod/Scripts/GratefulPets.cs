@@ -105,74 +105,74 @@ namespace XRL.World.Parts
 		public const string DIGESTION_PROPERTY = "GratefulPets.Digestions";
 
 		// ------------------------------------------------------------------
-		//  Gift tables.  A "roll" picks a blueprint by weight.  When the pet is
-		//  tired of the chosen food the gift is downgraded to the junk tier
-		//  (nuggets and rough/unpolished stones) — still a gift, never a
-		//  jackpot.  Pellets are unaffected.
-		//
-		//  Full table weights total 99.  Blueprints are confirmed present in
-		//  Base/ObjectBlueprints/Items.xml (commerce values from that file):
-		//
-		//   12  Copper Nugget            10      5   Rough Topaz
-		//   10  Rough Agate             100      6   Polished Topaz
-		//    9  Polished Agate          120      6   Random Silver Figurine
-		//    8  Silver Nugget            50      5   Rough Jasper
-		//    4  Rough Amethyst          250      4   Polished Amethyst
-		//    4  Gold Nugget             200      3   Random Gold Figurine
-		//    3  Rough Sapphire          300      3   Polished Sapphire
-		//    2  Rough Emerald           350      2   Polished Emerald
-		//    2  Rough Peridot           350      2   Polished Peridot
-		//    1  UbernostrumTonic       (T5)      1   Chiral Rings           1250
+		//  Reward lists (50 slots each, uniform random by slot; repeats weight
+		//  staples).  All blueprints verified in Base/ObjectBlueprints/Items.xml.
+		//  - TreasureList: normal food-feeding (and corpse-milestone) gifts.
+		//  - DowngradedTreasureList: when the pet is tired of that food.
+		//  - HealingList: "Care" (feed a Tonic/syringe) reward for the player.
 		// ------------------------------------------------------------------
 
-		static readonly string[] GiftBlueprints = new string[]
+		static readonly string[] TreasureList = new string[]
 		{
-			"Copper Nugget",            // 12
-			"Rough Agate",              // 10
-			"Polished Agate",           //  9
-			"Silver Nugget",            //  8
-			"Rough Topaz",              //  7
-			"Polished Topaz",           //  6
-			"Random Silver Figurine",   //  6
-			"Rough Jasper",             //  5
-			"Polished Jasper",          //  5
-			"Rough Amethyst",           //  4
-			"Polished Amethyst",        //  4
-			"Gold Nugget",              //  4
-			"Random Gold Figurine",     //  3
-			"Rough Sapphire",           //  3
-			"Polished Sapphire",        //  3
-			"Rough Emerald",            //  2
-			"Polished Emerald",         //  2
-			"Rough Peridot",            //  2
-			"Polished Peridot",         //  2
-			"UbernostrumTonic",         //  1
-			"Chiral Rings"              //  1
+			"Copper Nugget", "Copper Nugget", "Copper Nugget", "Copper Nugget",
+			"Silver Nugget", "Silver Nugget", "Silver Nugget",
+			"Gold Nugget", "Gold Nugget",
+			"Rough Agate", "Rough Agate", "Rough Agate",
+			"Rough Topaz", "Rough Topaz",
+			"Rough Jasper", "Rough Jasper",
+			"Rough Amethyst", "Rough Sapphire", "Rough Emerald", "Rough Peridot",
+			"Polished Agate", "Polished Agate",
+			"Polished Topaz", "Polished Topaz",
+			"Polished Jasper", "Polished Jasper",
+			"Polished Amethyst", "Polished Sapphire", "Polished Emerald", "Polished Peridot",
+			"Random Copper Figurine", "Random Copper Figurine",
+			"Random Silver Figurine", "Random Silver Figurine",
+			"Random Gold Figurine",
+			"Random Topaz Figurine", "Random Jasper Figurine", "Random Agate Figurine",
+			"Random Amethyst Figurine", "Random Sapphire Figurine", "Random Emerald Figurine", "Random Peridot Figurine",
+			"BoxOfCrayons", "Portable Beehive", "Arsplice Seed", "Chiral Rings",
+			"Metamorphic Polygel", "Fixit Spray", "Spray-a-Brain", "Random Rare Phial"
 		};
 
-		static readonly int[] GiftWeights = new int[]
+		// Downgraded (tired-of-that-food) treasure: commons/roughs/nuggets, still 50 slots.
+		static readonly string[] DowngradedTreasureList = new string[]
 		{
-			12, 10, 9, 8, 7, 6, 6, 5, 5, 4, 4, 4, 3, 3, 3, 2, 2, 2, 2, 1, 1
+			"Copper Nugget", "Copper Nugget", "Copper Nugget", "Copper Nugget", "Copper Nugget", "Copper Nugget",
+			"Silver Nugget", "Silver Nugget", "Silver Nugget", "Silver Nugget",
+			"Gold Nugget", "Gold Nugget",
+			"Rough Agate", "Rough Agate", "Rough Agate", "Rough Agate", "Rough Agate",
+			"Rough Topaz", "Rough Topaz", "Rough Topaz", "Rough Topaz",
+			"Rough Jasper", "Rough Jasper", "Rough Jasper", "Rough Jasper",
+			"Rough Amethyst", "Rough Amethyst", "Rough Amethyst",
+			"Rough Sapphire", "Rough Sapphire", "Rough Sapphire",
+			"Rough Emerald", "Rough Emerald",
+			"Rough Peridot", "Rough Peridot",
+			"Random Copper Figurine", "Random Copper Figurine", "Random Copper Figurine", "Random Copper Figurine",
+			"Random Silver Figurine", "Random Silver Figurine",
+			"Polished Agate", "Polished Agate",
+			"Polished Topaz", "Polished Jasper",
+			"Bandage", "Bandage", "BoxOfCrayons", "Metamorphic Polygel", "Fixit Spray"
 		};
 
-		// Junk tier — tired pet: nuggets and rough stones only.
-		static readonly string[] JunkGiftBlueprints = new string[]
+		static readonly string[] HealingList = new string[]
 		{
-			"Copper Nugget",
-			"Rough Agate",
-			"Silver Nugget",
-			"Rough Topaz",
-			"Rough Jasper",
-			"Rough Amethyst",
-			"Gold Nugget",
-			"Rough Sapphire",
-			"Rough Emerald",
-			"Rough Peridot"
-		};
-
-		static readonly int[] JunkGiftWeights = new int[]
-		{
-			12, 10, 8, 7, 5, 4, 4, 3, 2, 2
+			"Bandage", "Bandage", "Bandage", "Bandage", "Bandage", "Bandage", "Bandage", "Bandage",
+			"SalveTonic", "SalveTonic", "SalveTonic", "SalveTonic", "SalveTonic", "SalveTonic",
+			"UbernostrumTonic", "UbernostrumTonic", "UbernostrumTonic", "UbernostrumTonic", "UbernostrumTonic",
+			"SphynxSaltTonic", "SphynxSaltTonic", "SphynxSaltTonic",
+			"Convalessence Phial", "Convalessence Phial", "Convalessence Phial",
+			"ConvalessenceCanteen", "ConvalessenceCanteen",
+			"SkulkTonic", "SkulkTonic",
+			"ShadeOilTonic", "ShadeOilTonic",
+			"BlazeTonic", "BlazeTonic",
+			"HulkHoneyTonic", "HulkHoneyTonic",
+			"RubbergumTonic", "RubbergumTonic",
+			"NectarTonic", "NectarTonic",
+			"LoveTonic",
+			"BrainBrinePhial",
+			"Metamorphic Polygel", "Metamorphic Polygel",
+			"Fixit Spray",
+			"Bandage", "SalveTonic", "UbernostrumTonic", "Convalessence Phial", "SphynxSaltTonic", "Bandage"
 		};
 
 		// ------------------------------------------------------------------
@@ -247,12 +247,18 @@ namespace XRL.World.Parts
 
 		public override bool HandleEvent(BeginConversationEvent E)
 		{
-			// "Feed as an option under chat" — inject into the conversation so
+			// "Feed"/"Care" as options under chat — inject into the conversation so
 			// chat's availability logic (range, busy/fighting, can-start) applies
-			// for free. Only for real pets.
-			if (E != null && E.StartNode != null && IsPet(E.SpeakingWith))
+			// for free. Only for real pets. Ensure the pet has its digestion/corpse
+			// tracking part.
+			if (E != null && IsPet(E.SpeakingWith))
 			{
-				InjectFeedChoice(E.StartNode);
+				E.SpeakingWith.RequirePart<GratefulPetsDigestion>();
+				if (E.StartNode != null)
+				{
+					InjectFeedChoice(E.StartNode);
+					InjectCareChoice(E.StartNode);
+				}
 			}
 			return base.HandleEvent(E);
 		}
@@ -260,6 +266,17 @@ namespace XRL.World.Parts
 		// ------------------------------------------------------------------
 		//  Entry points
 		// ------------------------------------------------------------------
+
+		public static GameObject GiveTreasure(GameObject Actor, bool Tired = false)
+		{
+			string blueprint = RollGiftBlueprint(Tired);
+			GameObject gift = (blueprint != null) ? GameObject.Create(blueprint) : null;
+			if (gift != null && Actor != null && Actor.ReceiveObject(gift))
+			{
+				return gift;
+			}
+			return null;
+		}
 
 		/// <summary>Pick a food, then feed the pet. (Also used by the chat choice.)</summary>
 		public static void DoFeedPet(GameObject Actor, GameObject Pet)
@@ -312,6 +329,91 @@ namespace XRL.World.Parts
 				return;
 			}
 			Feed(Actor, Pet, chosen);
+		}
+
+		/// <summary>Pick a tonic/syringe, apply its benefit to the pet, then give a healing treasure. (Chat "Care" choice.)</summary>
+		public static void DoCareForPet(GameObject Actor, GameObject Pet)
+		{
+			Actor = ResolveActor(Actor);
+			if (Actor == null || Pet == null || Pet.IsInvalid() || !GratefulPets.IsPet(Pet))
+			{
+				return;
+			}
+			if (Pet.DistanceTo(Actor) > FEED_RANGE)
+			{
+				Msg("&YYou are too far away to care for " + PetName(Pet) + ".");
+				return;
+			}
+
+			List<GameObject> tonicChoices = CollectCarriedTonics(Actor);
+			if (tonicChoices.Count == 0)
+			{
+				Msg("&YYou have no tonics to use on " + PetName(Pet) + ".");
+				return;
+			}
+
+			GameObject chosen = Popup.PickGameObject(
+				"Use which tonic on " + PetName(Pet) + "?",
+				tonicChoices,
+				AllowEscape: true,
+				ShowContext: false,
+				UseYourself: false
+			);
+			if (chosen == null)
+			{
+				return;
+			}
+
+			if (chosen.IsInvalid() || chosen.InInventory != Actor)
+			{
+				Msg("&YYou no longer have that.");
+				return;
+			}
+
+			bool eat = chosen.GetPart<Tonic>()?.Eat ?? false;
+			// Apply the tonic's real effect to the pet (ApplyExternally, ObjectTarget=pet).
+			bool applied = InventoryActionEvent.Check(chosen, Actor, chosen, "ApplyExternally", Auto: false, OwnershipHandled: false, OverrideEnergyCost: !eat, Forced: false, Silent: false, 0, 0, 0, Pet);
+			if (!applied)
+			{
+				return;
+			}
+
+			Actor.UseEnergy(FEED_ENERGY_COST, "Item ApplyTo");
+
+			string blueprint = RollHealingBlueprint();
+			GameObject heal = (blueprint != null) ? GameObject.Create(blueprint) : null;
+			if (heal != null && Actor.ReceiveObject(heal))
+			{
+				Messaging.XDidYToZ(Pet, "give", null, Actor, heal.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
+			}
+		}
+
+		public static List<GameObject> CollectCarriedTonics(GameObject Actor)
+		{
+			List<GameObject> result = new List<GameObject>();
+			HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			List<GameObject> inventory = Actor.GetInventory();
+			if (inventory == null)
+			{
+				return result;
+			}
+			for (int i = 0; i < inventory.Count; i++)
+			{
+				GameObject item = inventory[i];
+				if (item == null || item.IsInvalid())
+				{
+					continue;
+				}
+				if (!item.HasPart<Tonic>() || item.IsImportant())
+				{
+					continue;
+				}
+				if (seen.Add(item.Blueprint))
+				{
+					result.Add(item);
+				}
+			}
+			return result;
 		}
 
 		/// <summary>Twiddled a food item: pick an adjacent pet, then feed it.</summary>
@@ -419,9 +521,8 @@ namespace XRL.World.Parts
 			SetFeedCounts(Pet, counts, today);
 
 			// 5. Treasure right away as thanks (downgraded if the pet is tired).
-			string blueprint = RollGiftBlueprint(tired);
-			GameObject gift = (blueprint != null) ? GameObject.Create(blueprint) : null;
-			if (gift != null && Actor.ReceiveObject(gift))
+			GameObject gift = GiveTreasure(Actor, tired);
+			if (gift != null)
 			{
 				Messaging.XDidYToZ(Pet, "give", null, Actor, gift.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
 			}
@@ -592,38 +693,21 @@ namespace XRL.World.Parts
 
 		static string RollGiftBlueprint(bool Tired)
 		{
-			if (Tired)
-			{
-				return RollWeighted(JunkGiftBlueprints, JunkGiftWeights);
-			}
-			return RollWeighted(GiftBlueprints, GiftWeights);
+			return RollFrom(Tired ? DowngradedTreasureList : TreasureList);
 		}
 
-		static string RollWeighted(string[] Blueprints, int[] Weights)
+		static string RollHealingBlueprint()
 		{
-			if (Blueprints == null || Blueprints.Length == 0 || Weights == null || Weights.Length == 0)
+			return RollFrom(HealingList);
+		}
+
+		static string RollFrom(string[] Blueprints)
+		{
+			if (Blueprints == null || Blueprints.Length == 0)
 			{
 				return null;
 			}
-			int total = 0;
-			for (int i = 0; i < Weights.Length; i++)
-			{
-				total += Weights[i];
-			}
-			if (total <= 0)
-			{
-				return null;
-			}
-			int roll = Stat.Random(1, total);
-			for (int i = 0; i < Blueprints.Length && i < Weights.Length; i++)
-			{
-				roll -= Weights[i];
-				if (roll <= 0)
-				{
-					return Blueprints[i];
-				}
-			}
-			return Blueprints[Blueprints.Length - 1];
+			return Blueprints[Stat.Random(0, Blueprints.Length - 1)];
 		}
 
 		static GameObject ResolveActor(GameObject Actor)
@@ -663,6 +747,7 @@ namespace XRL.World.Parts
 		// ------------------------------------------------------------------
 
 		public const string FEED_CHOICE_ID = "GratefulPets_Feed";
+		public const string CARE_CHOICE_ID = "GratefulPets_Care";
 
 		static void InjectFeedChoice(Node StartNode)
 		{
@@ -690,6 +775,46 @@ namespace XRL.World.Parts
 			choice.Target = "End"; // keep Target last (it adjusts priority)
 
 			XRL.World.Conversations.Parts.GratefulPetsFeedChoicePart part = new XRL.World.Conversations.Parts.GratefulPetsFeedChoicePart();
+			part.ParentElement = choice;
+			choice.Parts = new List<IConversationPart>(1);
+			choice.Parts.Add(part);
+			part.Initialize();
+
+			StartNode.Elements = StartNode.Elements ?? new List<IConversationElement>();
+			StartNode.Elements.Add(choice);
+		}
+
+		static void InjectCareChoice(Node StartNode)
+		{
+			if (StartNode == null)
+			{
+				return;
+			}
+			// No tonics carried => no care option.
+			if (CollectCarriedTonics(The.Player).Count == 0)
+			{
+				return;
+			}
+			if (StartNode.Elements != null)
+			{
+				for (int i = 0; i < StartNode.Elements.Count; i++)
+				{
+					Choice existing = StartNode.Elements[i] as Choice;
+					if (existing != null && existing.ID == CARE_CHOICE_ID)
+					{
+						return;
+					}
+				}
+			}
+
+			Choice choice = new Choice();
+			choice.Parent = StartNode;
+			choice.ID = CARE_CHOICE_ID;
+			choice.Text = "Let me care for you.";
+			choice.Ordinal = 6;
+			choice.Target = "End"; // keep Target last (it adjusts priority)
+
+			XRL.World.Conversations.Parts.GratefulPetsCareChoicePart part = new XRL.World.Conversations.Parts.GratefulPetsCareChoicePart();
 			part.ParentElement = choice;
 			choice.Parts = new List<IConversationPart>(1);
 			choice.Parts.Add(part);
@@ -792,8 +917,9 @@ namespace XRL.World.Parts
 	}
 
 	/// <summary>
-	/// Lives on a fed pet. Produces desalination pellets locally on schedule and
-	/// approaches the party leader to share them when ready.
+	/// Lives on a fed/interacted pet. Produces desalination pellets locally on
+	/// schedule and approaches the party leader to share them. Also tracks
+	/// corpses butchered by the pet (every 5 => 2 treasures + 5 pellets).
 	/// </summary>
 	[Serializable]
 	public class GratefulPetsDigestion : IPart
@@ -801,18 +927,118 @@ namespace XRL.World.Parts
 		public int RemainingToProduce;
 		public long NextProductionTick;
 		public int HeldForDelivery;
+		public int CorpseCount;
+
+		public const int CORPSE_MILESTONE = 5;
+		public const int CORPSE_TREASURES = 2;
+		public const int CORPSE_PELLETS = 5;
+
+		public override void Write(GameObject Basis, SerializationWriter Writer)
+		{
+			Writer.Write((byte)1); // version
+			Writer.Write(RemainingToProduce);
+			Writer.Write(NextProductionTick);
+			Writer.Write(HeldForDelivery);
+			Writer.Write(CorpseCount);
+		}
+
+		public override void Read(GameObject Basis, SerializationReader Reader)
+		{
+			try
+			{
+				byte version = Reader.ReadByte();
+				if (version >= 1)
+				{
+					RemainingToProduce = Reader.ReadInt32();
+					NextProductionTick = Reader.ReadInt64();
+					HeldForDelivery = Reader.ReadInt32();
+					CorpseCount = Reader.ReadInt32();
+					return;
+				}
+			}
+			catch
+			{
+			}
+			// Old/incompatible payload: reset safely so the save keeps loading.
+			RemainingToProduce = 0;
+			NextProductionTick = 0;
+			HeldForDelivery = 0;
+			CorpseCount = 0;
+		}
+
+		public override bool AllowStaticRegistration()
+		{
+			return true;
+		}
+
+		public override void Register(GameObject Object, XRL.IEventRegistrar Registrar)
+		{
+			Registrar.Register("ObjectExtracted");
+			base.Register(Object, Registrar);
+		}
+
+		public override bool FireEvent(XRL.World.Event E)
+		{
+			if (E != null && E.ID == "ObjectExtracted" && E.GetStringParameter("Action") == "Butcher")
+			{
+				OnCorpseButchered();
+			}
+			return base.FireEvent(E);
+		}
+
+		void OnCorpseButchered()
+		{
+			if (ParentObject == null || ParentObject.IsInvalid())
+			{
+				return;
+			}
+			CorpseCount++;
+			if (CorpseCount < CORPSE_MILESTONE)
+			{
+				return;
+			}
+			CorpseCount = 0;
+
+			GameObject player = The.Player;
+			if (player == null || player.IsInvalid())
+			{
+				return;
+			}
+
+			for (int i = 0; i < CORPSE_TREASURES; i++)
+			{
+				GameObject gift = GratefulPets.GiveTreasure(player, Tired: false);
+				if (gift != null)
+				{
+					Messaging.XDidYToZ(ParentObject, "give", null, player, gift.t(int.MaxValue, null, null, AsIfKnown: false, Single: true));
+				}
+			}
+
+			for (int i = 0; i < CORPSE_PELLETS; i++)
+			{
+				ProduceOne();
+			}
+			TryDeliverOrApproach();
+		}
 
 		public void BeginDigestion(int ProduceNow, int ProduceLater, long NowTick)
 		{
+			if (NowTick <= 0)
+			{
+				NowTick = GratefulPets.CurrentTick();
+			}
 			// Produce the immediate pellet(s) locally and try to share now.
 			for (int i = 0; i < ProduceNow; i++)
 			{
 				ProduceOne();
 			}
 			RemainingToProduce += ProduceLater;
-			if (RemainingToProduce > 0 && NextProductionTick <= 0)
+			if (RemainingToProduce > 0)
 			{
-				NextProductionTick = NowTick + GratefulPets.DIGESTION_INTERVAL;
+				if (NextProductionTick <= 0)
+				{
+					NextProductionTick = NowTick + GratefulPets.DIGESTION_INTERVAL;
+				}
 			}
 			TryDeliverOrApproach();
 		}
@@ -858,8 +1084,45 @@ namespace XRL.World.Parts
 			{
 				return;
 			}
+
+			GameObject player = The.Player;
 			pellet.SetIntProperty("GratefulPets.GiftPellet", 1);
-			ParentObject.ReceiveObject(pellet);
+
+			// Produce locally on the pet when possible.
+			if (ParentObject.ReceiveObject(pellet))
+			{
+				HeldForDelivery++;
+				return;
+			}
+
+			// If it can't be placed on the pet, don't lose it: deliver directly.
+			pellet.RemoveIntProperty("GratefulPets.GiftPellet");
+			if (player != null && !player.IsInvalid())
+			{
+				if (ParentObject.DistanceTo(player) <= 1)
+				{
+					if (player.ReceiveObject(pellet))
+					{
+						Messaging.XDidYToZ(ParentObject, "hand", null, player, "a desalination pellet");
+					}
+					else
+					{
+						player.ReceiveObject(GratefulPets.PELLET_BLUEPRINT, 1);
+						if (!pellet.IsInvalid()) pellet.Obliterate();
+						Messaging.XDidYToZ(ParentObject, "hand", null, player, "a desalination pellet");
+					}
+				}
+				else
+				{
+					player.ReceiveObject(GratefulPets.PELLET_BLUEPRINT, 1);
+					if (!pellet.IsInvalid()) pellet.Obliterate();
+					IComponent<GameObject>.AddPlayerMessage("&g" + (ParentObject.GetDisplayName(Single: true, NoColor: true, Short: true, BaseOnly: true) ?? "Your pet") + " produces a desalination pellet and sends it to you.");
+				}
+				return;
+			}
+
+			// Last resort: keep the object alive in limbo isn't useful; count it
+			// so reconciliation/delivery logic can compensate if it ever lands.
 			HeldForDelivery++;
 		}
 
@@ -883,8 +1146,7 @@ namespace XRL.World.Parts
 
 			if (ParentObject.DistanceTo(player) <= 1)
 			{
-				DeliverOne(player);
-				// If more remain, deliver gradually on subsequent ticks.
+				DeliverAll(player);
 				return;
 			}
 
@@ -904,7 +1166,6 @@ namespace XRL.World.Parts
 				return;
 			}
 			pellet.RemoveIntProperty("GratefulPets.GiftPellet");
-			// Move from pet to player.
 			pellet.RemoveFromContext();
 			if (Player.ReceiveObject(pellet))
 			{
@@ -912,15 +1173,41 @@ namespace XRL.World.Parts
 			}
 			else
 			{
-				// Fallback: try by blueprint so the player isn't cheated.
 				Player.ReceiveObject(GratefulPets.PELLET_BLUEPRINT, 1);
-				pellet.Obliterate();
+				if (!pellet.IsInvalid()) pellet.Obliterate();
 				Messaging.XDidYToZ(ParentObject, "hand", null, Player, "a desalination pellet");
 			}
 			HeldForDelivery--;
 			if (HeldForDelivery < 0)
 			{
 				HeldForDelivery = CountHeldGiftPellets();
+			}
+		}
+
+		void DeliverAll(GameObject Player)
+		{
+			int delivered = 0;
+			while (true)
+			{
+				GameObject pellet = FindHeldGiftPellet();
+				if (pellet == null)
+				{
+					break;
+				}
+				pellet.RemoveIntProperty("GratefulPets.GiftPellet");
+				pellet.RemoveFromContext();
+				if (!Player.ReceiveObject(pellet))
+				{
+					Player.ReceiveObject(GratefulPets.PELLET_BLUEPRINT, 1);
+					if (!pellet.IsInvalid()) pellet.Obliterate();
+				}
+				delivered++;
+			}
+			HeldForDelivery = 0;
+			if (delivered > 0)
+			{
+				string label = delivered == 1 ? "a desalination pellet" : delivered + " desalination pellets";
+				Messaging.XDidYToZ(ParentObject, "hand", null, Player, label);
 			}
 		}
 
@@ -993,6 +1280,25 @@ namespace XRL.World.Conversations.Parts
 			if (pet != null && actor != null && XRL.World.Parts.GratefulPets.IsPet(pet))
 			{
 				XRL.World.Parts.GratefulPets.DoFeedPet(actor, pet);
+			}
+			return base.HandleEvent(E);
+		}
+	}
+
+	public class GratefulPetsCareChoicePart : IConversationPart
+	{
+		public override bool WantEvent(int ID, int Propagation)
+		{
+			return base.WantEvent(ID, Propagation) || ID == EnterElementEvent.ID;
+		}
+
+		public override bool HandleEvent(EnterElementEvent E)
+		{
+			GameObject pet = The.Speaker;
+			GameObject actor = The.Player;
+			if (pet != null && actor != null && XRL.World.Parts.GratefulPets.IsPet(pet))
+			{
+				XRL.World.Parts.GratefulPets.DoCareForPet(actor, pet);
 			}
 			return base.HandleEvent(E);
 		}

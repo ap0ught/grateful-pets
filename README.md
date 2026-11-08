@@ -1,87 +1,113 @@
 # grateful-pets
 
-**Repository:** [`github.com/ap0ught/grateful-pets`](https://github.com/ap0ught/grateful-pets)
+> *“Live and drink,”* says your chrome-plated hound, who has never once paid for a drink in its life.  
+> *“Live, drink, and bring snacks,”* you reply — because in Qud, affection is a barter economy and you are holding beetle jerky.
 
-A **Caves of Qud** mod where your pets appreciate being fed — plus the research journal that
-documents how the whole thing was built.
-
-> **Feeding a pet costs one food item. In return you always get 5 Desalination Pellets, plus one
-> random valuable item** — a nugget, a gemstone, a figurine, some jewellery, or, very rarely, a
-> ubernostrum injector or a pair of Chiral Rings.
-
-Any creature with the `Pet` or `StartingPet` tag, or the `Pettable` part, can be fed. That covers
-every base-game pet and every *Pets of Harvest Dawn* DLC pet, plus anything another mod adds with
-those tags.
+**Repository:** [`github.com/ap0ught/grateful-pets`](https://github.com/ap0ught/grateful-pets)  
+A **Caves of Qud** mod where real pets appreciate being fed (and cared for) — and pay you back in desalination pellets, treasure, and the slow, deliberate generosity of something that has to *digest first*. This repo also keeps the **research journal** that explains how it was built, line by decompiled line.
 
 ---
 
-## Contents
+## What it does (the pact, witnessed by no Baetyl in particular)
 
-| Path | What it is |
-|---|---|
-| [`mod/`](mod/) | **the mod** — `manifest.json` + `Scripts/GratefulPets.cs` |
-| [`journal/`](journal/) | **the journal** — everything learned while building it, start at [`journal/00-index.md`](journal/00-index.md) |
-| [`decomp/`](decomp/) | the game's `Assembly-CSharp.dll` decompiled to C# (5,436 files) — the evidence base the journal cites |
-| [`reference/`](reference/) | curated extracts: key game classes, a working third-party mod, the full type list |
-| [`legacy-items-fix/`](legacy-items-fix/) | the compile fix for the unmaintained *Legacy Items* mod, also maintained at [`ap0ught/legacy-items`](https://github.com/ap0ught/legacy-items) |
+**Talk to a real pet** (any creature with the `Pet` / `StartingPet` tag, or the `Pettable` part — base game, *Pets of Harvest Dawn*, and anything a mod blesses with those tags). Because the verbs live **under chat**, all the usual conversation law applies for free: if your companion is too busy being gloriously perforated in melee or is, regrettably, on fire, parley waits — as it should.
+
+You’ll see, when the stars (and your inventory) align:
+
+- **`Let me feed you.`** *(always, for a real pet)* — pick a carried **food** item.
+  - Costs **1 food** + **1 turn**. (Feeding from a stack eats one, not the whole tragic hoard — `Stacker` is merciful.)
+  - **Treasure now:** 1 random pull from a **50-slot treasure list** (nuggets, rough/polished gems, figurines, and curios like `Chiral Rings` or a `Portable Beehive`). Feed the same food too often and your pet grows *weary* of it — the treasure **downgrades** (tiredness decays **−1 per in-game day**, tracked **per pet, per food**, shown as `[n]` in the picker).
+  - **Desalination pellets:** **1 now** + **4 more over the course of the day** (every **300 turns**) as the pet digests. Each is **produced locally** and the pet **approaches to share** it (a grateful shuffle, not an interdimensional wire transfer). *Pellets are never downgraded.* (Unidentified pellets may masquerade as an **“odd trinket”** until identified — the handoff message still fires; Qud loves a humble disguise.)
+- **`Let me care for you.`** *(only if you’re carrying a `Tonic`/syringe)* — pick a tonic.
+  - Applies the tonic’s **real effect to the pet** (the genuine `ApplyExternally`/tonic path) and gives you **1 healing treasure** from a **50-slot healing list** (bandages, salves, ubernostrum, convalessence, and other medicinal kindnesses). **No tiredness.** Care, unlike cuisine, does not pall.
+
+**Butcher’s bonus:** every **5 corpses the pet butchers** (pet is the actor) → **2 treasures + 5 pellets**, produced and shared. A companion that helps with the grisly work is a companion that tips.
+
+**Also handy:** you can **apply a desalination pellet** directly to your **carried** liquid containers or an **adjacent open liquid pool** from their action menu (vanilla purification path).
+
+> *The pet does not email you the pellet. It manufactures gratitude on-site and walks it over, like a civilized being of the salt dunes.*
 
 ---
 
-## Installing the mod
+## Install
 
-1. Make sure **Options → Modding → Allow scripting mods** is on (it already is on this machine:
-   `Local/PlayerOptions.json` → `"OptionAllowCSMods": "Yes"`).
-2. Copy `mod/` into your mods folder as a directory named `GratefulPets`:
+1. **Options → Modding → Allow scripting mods** = on.  
+   (e.g. `~/.config/unity3d/Freehold Games/CavesOfQud/Local/PlayerOptions.json` → `"OptionAllowCSMods": "Yes"`.)
+2. Copy `mod/` into your mods folder as `GratefulPets`:
 
-   ```
+   ```text
    ~/.config/unity3d/Freehold Games/CavesOfQud/Mods/GratefulPets/
    ├── manifest.json
    └── Scripts/GratefulPets.cs
    ```
 
-3. Launch the game. Mods are enabled by default — there is nothing to tick.
-4. Check it compiled:
+3. **Restart the game** (mods compile at startup; new installs and updates both need a restart).
+4. Confirm it compiled — `build_log.txt` is the oracle:
 
    ```bash
-   grep -A4 "GRATEFUL PETS" ~/.config/unity3d/Freehold\ Games/CavesOfQud/build_log.txt
-   # expect: Compiling 1 file...  /  Success :)  /  Location: …/ModAssemblies/GratefulPets.dll
+   grep -B1 -A5 '=== GRATEFUL PETS ===' \
+     ~/.config/unity3d/Freehold\ Games/CavesOfQud/build_log.txt | tail -7
+   # expect: Compiling 1 file... / Success :) / Defined symbol: MOD_GRATEFULPETS
    ```
 
-   *Verified 2026-11-07 — see [`journal/00-index.md`](journal/00-index.md#verification-result).*
+5. In game: **chat with a pet** → choose **“Let me feed you.”** (needs carried food, be in range) or **“Let me care for you.”** (needs a carried tonic). There’s also **“Feed to pet”** on a carried food item if a chatable pet is adjacent.
 
-5. In game: examine a pet (or right-click it, or use interact-nearby) → choose **Feed** (hotkey
-   `f`). You need to be adjacent and holding at least one food item.
-
-## Using it as a starting point for your own mod
-
-The journal is written to be reusable even if you're building something completely different:
-
-- **[04 — Events & inventory actions](journal/04-events-and-inventory-actions.md)** is the one
-  that matters most: how a verb gets attached to an object, and the `FireOnActor` fork that
-  decides whether the handler lives on the object or on the player.
-- **[02 — Mod system](journal/02-mod-system.md)** — manifest, compilation, `build_log.txt`.
-- **[08 — API cheatsheet](journal/08-api-cheatsheet.md)** — signatures read straight out of the
-  game assembly, so you don't have to decompile them yourself.
-- **[09 — Gotchas](journal/09-gotchas-and-troubleshooting.md)** — the failure modes that cost the
-  most time this session.
+If it misbehaves, the second oracle is `~/.config/unity3d/Freehold Games/CavesOfQud/Player.log` (`MODERROR`/exceptions).
 
 ---
 
-## About the decompilation
+## Works on a save already in progress?
 
-`decomp/` is ILSpy's output from `CoQ_Data/Managed/Assembly-CSharp.dll`, included so the journal's
-claims can be checked against the actual game code rather than taken on trust.
+**Yes — bring your existing regrets, they’re welcome here.** The mod hooks the player on load (`[CallAfterGameLoaded]` + `[PlayerMutator]`), injects chat choices at runtime, and adds per-pet state as you interact. No new game, no ritual rebirth at Joppa.
 
-**The game code is © Freehold Games.** It is included here purely as a personal/reference research
-artifact for modding the game the author owns a copy of. It is not my code, I claim no rights to
-it, and it should not be redistributed as a product. If Freehold Games would like any part of this
-removed, that's entirely reasonable — open an issue.
+- **Restart after install/update** so it recompiles.
+- If you ever loaded through an older/broken `GratefulPetsDigestion` serialization (we fixed this with a defensive, versioned `Read`), that pet’s *in-progress* digestion/corpse count resets safely — **feed the pet again** to re-arm it.
+- Timed sharing runs on the pet’s ticks; keep your companion nearby/player-led so it can waddle over and deliver the goods. (Cross-zone edge cases are less ceremonially verified.)
 
-Modding notes and the `grateful-pets` mod source in this repo are mine.
+Details: [`journal/11-how-it-works-and-in-progress-saves.md`](journal/11-how-it-works-and-in-progress-saves.md).
 
-## Legacy Items fork
+---
 
-The workshop mod **Legacy Items (Hand-me-downs)** (workshop `3619655640`, by *Kraut Kontrol*)
-stopped compiling after a game update (`error CS1579`, 0-byte DLL). The fix and a maintained copy
-live at **[ap0ught/legacy-items](https://github.com/ap0ught/legacy-items)** — original authorship
-retained; see that repo's README for the details of the patch.
+## How it works (for the Mechanimist in you)
+
+| Piece | Where | Gist |
+|---|---|---|
+| Player hook (incl. existing saves) | `GratefulPetsPlayerMutator` `[PlayerMutator]` + `GratefulPetsLoadHandler` `[CallAfterGameLoaded]` | `RequirePart<GratefulPets>()` on the player, on create and on every load |
+| Feed/Care under chat | `GratefulPets.HandleEvent(BeginConversationEvent)` → injects `Choice` + `IConversationPart` | inherits `ConversationScript` busy/range/can-start gating for free |
+| Food taste (per pet, per food, decays) | `GratefulPets.FeedLog` on the pet (serialized `Property`) | `[n]` in picker; tired ≥ 5 downgrades **treasure** only |
+| Digestion + sharing | `GratefulPetsDigestion` `[Serializable]` on the pet, `WantTurnTick`/`TurnTick` | 1 now + 4/300t, produced locally, handed over when adjacent; `MoveTo` nudge like `GiveATreatToPartyLeader` |
+| Corpse milestone | legacy `ObjectExtracted` (`Action=="Butcher"`, pet = actor) | every 5 → 2 treasures + 5 pellets |
+| Rewards | 50-slot `TreasureList` / `DowngradedTreasureList` / `HealingList` | verified base blueprints, uniform by slot (repeats weight) |
+
+Source of truth: [`mod/Scripts/GratefulPets.cs`](mod/Scripts/GratefulPets.cs) (manifest: [`mod/manifest.json`](mod/manifest.json)).
+
+---
+
+## Contents of this repo
+
+| Path | What it is |
+|---|---|
+| [`mod/`](mod/) | **the mod** — `manifest.json` + `Scripts/GratefulPets.cs` |
+| [`journal/`](journal/) | **the research journal** — start at [`journal/00-index.md`](journal/00-index.md) (how verbs wire up, how the mod injects, and every time the pellets were “missing” because of an *odd trinket* in a trench coat) |
+| [`decomp/`](decomp/) | `Assembly-CSharp.dll` decompiled to C# (5,436 files) — the evidence the journal cites |
+| [`reference/`](reference/) | curated extracts and the full type list |
+| [`legacy-items-fix/`](legacy-items-fix/) | the *Legacy Items* compile fix, maintained at [`ap0ught/legacy-items`](https://github.com/ap0ught/legacy-items) |
+| [`AGENT.md`](AGENT.md) | how to work in this repo (for humans and well-meaning automatons) |
+
+---
+
+## Building on it / the journal trail
+
+If you’re here to mod, not merely to be adored by your own pet rock: read **[04 — Events & inventory actions](journal/04-events-and-inventory-actions.md)** (the `FireOnActor` fork), **[06 — Injecting code onto the player](journal/06-player-code-injection.md)**, **[08 — API cheatsheet](journal/08-api-cheatsheet.md)**, and **[10](journal/10-pellet-bug-and-feed-redesign.md)/[11](journal/11-how-it-works-and-in-progress-saves.md)** for the real implementation. Every claim in the journal is grounded in `decomp/` or game XML, or marked *(inferred)*.
+
+---
+
+## Provenance & a polite bow to the Eaters
+
+`decomp/` is ILSpy output from the game’s `Assembly-CSharp.dll`, included so claims can be checked. **Game code is © Freehold Games** — included here as a personal/reference modding artifact for a copy of the game I own; not my code, no rights claimed, not a product. If Freehold Games wants any of it removed, open an issue and it shall be returned to the salt.
+
+The `grateful-pets` mod source and the modding notes in this repo are mine.
+
+**Legacy Items** (workshop `3619655640`, by *Kraut Kontrol*) stopped compiling after a game update; the fix is maintained at **[ap0ught/legacy-items](https://github.com/ap0ught/legacy-items)** (original authorship retained).
+
+*Live and drink. Tip your snapjaw.*
